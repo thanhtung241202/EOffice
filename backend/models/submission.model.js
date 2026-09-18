@@ -211,6 +211,33 @@ const SubmissionModel = {
       .input('email', sql.VarChar(255), email)
       .query(`SELECT id, name FROM users WHERE email = @email`);
     return result.recordset[0];
+  },
+
+  async getSharedWithUser(userId, pool) {
+    const request = pool.request();
+    const result = await request
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .query(`
+        SELECT 
+          s.id,
+          s.document_code,
+          s.title,
+          s.category,
+          s.priority,
+          s.confidentiality,
+          s.status,
+          s.current_step_order,
+          s.total_steps,
+          s.created_at,
+          u.name AS creator_name
+        FROM submissions s
+        INNER JOIN submission_viewers sv ON s.id = sv.submission_id
+        INNER JOIN users u ON s.created_by_id = u.id
+        WHERE sv.user_id = @user_id 
+          AND s.deleted_at IS NULL
+        ORDER BY s.updated_at DESC;
+      `);
+    return result.recordset;
   }
 };
 

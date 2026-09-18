@@ -17,7 +17,7 @@ router.post('/', mockAuth, SubmissionController.create);
 router.get('/pending', mockAuth, SubmissionController.getPending);
 router.get('/my-submissions', mockAuth, SubmissionController.getMySubmissions);
 router.get('/processed', mockAuth, SubmissionController.getProcessed);
-//router.get('/shared', mockAuth, SubmissionController.getShared);
+router.get('/shared', mockAuth, SubmissionController.getShared);
 
 // 2. CÁC ROUTE ĐỘNG CÓ THAM SỐ :id (ĐẶT DƯỚI CÙNG)
 //router.post('/:id/share', mockAuth, SubmissionController.share);

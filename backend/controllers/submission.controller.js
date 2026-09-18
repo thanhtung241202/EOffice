@@ -208,6 +208,19 @@ const SubmissionController = {
       });
     }
   },
+
+  async getShared(req, res) {
+    try {
+      const userId = req.user?.id;
+      const result = await SubmissionService.getSharedSubmissions(userId);
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error('[Get Shared Submissions Error]:', error);
+      return res.status(500).json({ 
+        error: 'Lỗi khi lấy danh sách tờ trình được chia sẻ.' 
+      });
+    }
+  },
 };
 
 module.exports = SubmissionController;

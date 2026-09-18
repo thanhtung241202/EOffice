@@ -418,6 +418,14 @@ const SubmissionService = {
       throw err;
     }
   },
+  async getSharedSubmissions(userId) {
+    const pool = await poolPromise;
+    const data = await SubmissionModel.getSharedWithUser(userId, pool);
+    return {
+      total: data.length,
+      data
+    };
+  },
 };
 
 module.exports = SubmissionService;
