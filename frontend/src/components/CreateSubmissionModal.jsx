@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Paperclip, FileText, Trash2 } from 'lucide-react';
 
 export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, usersList = [] }) {
   if (!isOpen) return null;
@@ -9,12 +9,42 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
   const [category, setCategory] = useState('Tuyển dụng - Nhân sự - Đào tạo');
   const [priority, setPriority] = useState('NORMAL');
   const [confidentiality, setConfidentiality] = useState('NORMAL');
-  
+  const [attachments, setAttachments] = useState([]); // Quản lý danh sách file đính kèm
+
+  const fileInputRef = useRef(null);
+
   // Chuỗi duyệt mẫu (Bước 1: Trưởng phòng, Bước 2: Giám đốc)
   const [steps, setSteps] = useState([
     { approver_id: '22222222-2222-2222-2222-222222222222', step_role: 'REVIEWER' },
     { approver_id: '33333333-3333-3333-3333-333333333333', step_role: 'APPROVER' }
   ]);
+
+  // Xử lý khi chọn file từ máy
+  const handleFileChange = (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length === 0) return;
+
+    // Giới hạn tổng số lượng tối đa 5 file
+    if (attachments.length + selectedFiles.length > 5) {
+      alert('Bạn chỉ có thể đính kèm tối đa 5 tài liệu.');
+      return;
+    }
+
+    setAttachments((prev) => [...prev, ...selectedFiles]);
+    e.target.value = ''; // Reset input để có thể chọn lại file cùng tên nếu muốn
+  };
+
+  // Xóa file khỏi danh sách tạm
+  const handleRemoveFile = (indexToRemove) => {
+    setAttachments((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  // Định dạng hiển thị dung lượng file (KB/MB)
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -22,13 +52,16 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
       alert('Vui lòng nhập đầy đủ tiêu đề và nội dung.');
       return;
     }
+
+    // Gửi kèm mảng attachments lên component cha
     onSubmit({
       title,
       content,
       category,
       priority,
       confidentiality,
-      steps
+      steps,
+      attachments // Array chứa các File object
     });
   };
 
@@ -104,35 +137,85 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
             />
           </div>
 
+          {/* Khu vực tải tài liệu đính kèm */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-gray-700">Tài liệu đính kèm (PDF, DOCX, Ảnh...)</label>
+              <span className="text-[11px] text-gray-400">Tối đa 5 tệp (mỗi tệp &le; 25MB)</span>
+            </div>
+
+            {/* Input file ẩn */}
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              multiple 
+              className="hidden" 
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+            />
+
+            {/* Nút bấm chọn tệp */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-2.5 px-3 border border-dashed border-gray-300 rounded-lg flex items-center justify-center gap-2 text-xs text-gray-600 hover:border-red-500 hover:text-red-600 hover:bg-red-50/20 transition"
+            >
+              <Paperclip className="w-4 h-4" />
+              <span>Nhấp để tải lên tệp tin từ máy tính</span>
+            </button>
+
+            {/* Danh sách tệp đã chọn */}
+            {attachments.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {attachments.map((file, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 border border-gray-200 rounded-lg text-xs">
+                    <div className="flex items-center gap-2 truncate max-w-[85%]">
+                      <FileText className="w-4 h-4 text-gray-400 shrink-0" />
+                      <span className="truncate font-medium text-gray-700">{file.name}</span>
+                      <span className="text-[11px] text-gray-400 shrink-0">({formatFileSize(file.size)})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(idx)}
+                      className="p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Thiết lập người duyệt */}
-<div className="pt-2 border-t border-gray-100">
-  <label className="block text-xs font-bold text-gray-800 mb-2">Quy trình duyệt (2 bước chuẩn):</label>
-  <div className="space-y-2">
-    <div className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs">
-      <span className="font-bold text-red-600">Bước 1:</span>
-      <span className="text-gray-800 font-medium">Trần Thị B</span>
-      <span className="text-gray-500">(Kế toán Soát xét - Kế toán)</span>
-      <span className="ml-auto text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 font-medium">Soát xét</span>
-    </div>
-    <div className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs">
-      <span className="font-bold text-red-600">Bước 2:</span>
-      <span className="text-gray-800 font-medium">Lê Văn C</span>
-      <span className="text-gray-500">(Tổng Giám đốc - Ban Giám đốc)</span>
-      <span className="ml-auto text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 font-medium">Phê duyệt</span>
-    </div>
-  </div>
-</div>
+          <div className="pt-2 border-t border-gray-100">
+            <label className="block text-xs font-bold text-gray-800 mb-2">Quy trình duyệt (2 bước chuẩn):</label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs">
+                <span className="font-bold text-red-600">Bước 1:</span>
+                <span className="text-gray-800 font-medium">Trần Thị B</span>
+                <span className="text-gray-500">(Kế toán Soát xét - Kế toán)</span>
+                <span className="ml-auto text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 font-medium">Soát xét</span>
+              </div>
+              <div className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs">
+                <span className="font-bold text-red-600">Bước 2:</span>
+                <span className="text-gray-800 font-medium">Lê Văn C</span>
+                <span className="text-gray-500">(Tổng Giám đốc - Ban Giám đốc)</span>
+                <span className="ml-auto text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 font-medium">Phê duyệt</span>
+              </div>
+            </div>
+          </div>
 
           <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-2">
             <button 
               type="button" 
-              onClick={onClose}
+              onClick={onClose} 
               className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg"
             >
               Hủy
             </button>
             <button 
-              type="submit"
+              type="submit" 
               className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs"
             >
               Tạo và gửi trình

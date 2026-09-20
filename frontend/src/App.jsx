@@ -7,7 +7,8 @@ import SubmissionTable from './components/SubmissionTable';
 import SubmissionDetail from './components/SubmissionDetail';
 import CreateSubmissionModal from './components/CreateSubmissionModal';
 
-const API_BASE = 'http://localhost:5000/api/submissions';
+// Tách base URL gốc thành /api để linh hoạt gọi các route khác nhau
+const API_BASE = 'http://localhost:5000/api';
 
 const SYSTEM_USERS = [
   {
@@ -61,14 +62,12 @@ function SubmissionsListPage({ endpoint, currentUser, onOpenCreateModal }) {
   const fetchList = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/${endpoint}`, {
+      const res = await fetch(`${API_BASE}/submissions/${endpoint}`, {
         headers: { 'x-user-id': currentUser.id }
       });
       const json = await res.json();
       
       let list = [];
-      
-      // Khắc phục triệt để trường hợp API bọc 1 hay 2 lớp data
       if (Array.isArray(json)) {
         list = json;
       } else if (json?.data?.data && Array.isArray(json.data.data)) {
@@ -77,7 +76,6 @@ function SubmissionsListPage({ endpoint, currentUser, onOpenCreateModal }) {
         list = json.data;
       }
 
-      // Đảm bảo các thuộc tính id không bị lệch (API đôi khi trả về submission_id)
       const normalizedList = list.map(item => ({
         ...item,
         id: item.id || item.submission_id 
@@ -98,7 +96,6 @@ function SubmissionsListPage({ endpoint, currentUser, onOpenCreateModal }) {
     }
   }, [endpoint, currentUser.id]);
 
-  // Trạng thái đang tải
   if (loading) {
     return (
       <div className="p-8 text-center text-gray-500 font-medium text-sm animate-pulse">
@@ -107,7 +104,6 @@ function SubmissionsListPage({ endpoint, currentUser, onOpenCreateModal }) {
     );
   }
 
-  // Trạng thái rỗng
   if (submissions.length === 0) {
     return (
       <div className="m-6 p-10 bg-white border border-gray-200 rounded-xl flex flex-col items-center justify-center text-center shadow-xs">
@@ -143,7 +139,7 @@ function SubmissionDetailPageWrapper({ currentUser }) {
 
   const fetchDetail = async () => {
     try {
-      const res = await fetch(`${API_BASE}/${id}`, {
+      const res = await fetch(`${API_BASE}/submissions/${id}`, {
         headers: { 'x-user-id': currentUser.id }
       });
       const json = await res.json();
@@ -159,7 +155,7 @@ function SubmissionDetailPageWrapper({ currentUser }) {
 
   const handleAction = async (actionType, comment) => {
     try {
-      const res = await fetch(`${API_BASE}/${id}/action`, {
+      const res = await fetch(`${API_BASE}/submissions/${id}/action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -181,13 +177,31 @@ function SubmissionDetailPageWrapper({ currentUser }) {
 
   const handleResubmit = async (updatePayload) => {
     try {
-      const res = await fetch(`${API_BASE}/${id}/resubmit`, {
+      // 1. Nếu có tệp mới bổ sung khi nộp lại, tải lên trước
+      if (updatePayload.new_attachments && updatePayload.new_attachments.length > 0) {
+        const attachFormData = new FormData();
+        updatePayload.new_attachments.forEach((file) => {
+          attachFormData.append('files', file);
+        });
+
+        await fetch(`${API_BASE}/submissions/${id}/attachments`, {
+          method: 'POST',
+          headers: {
+            'x-user-id': currentUser.id
+          },
+          body: attachFormData
+        });
+      }
+
+      // 2. Nộp lại nội dung tờ trình
+      const { new_attachments, ...resubmitData } = updatePayload;
+      const res = await fetch(`${API_BASE}/submissions/${id}/resubmit`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': currentUser.id
         },
-        body: JSON.stringify(updatePayload)
+        body: JSON.stringify(resubmitData)
       });
       const json = await res.json();
       if (res.ok) {
@@ -203,7 +217,7 @@ function SubmissionDetailPageWrapper({ currentUser }) {
 
   const handleDelete = async () => {
     try {
-      const res = await fetch(`${API_BASE}/${id}`, {
+      const res = await fetch(`${API_BASE}/submissions/${id}`, {
         method: 'DELETE',
         headers: {
           'x-user-id': currentUser.id
@@ -223,7 +237,7 @@ function SubmissionDetailPageWrapper({ currentUser }) {
 
   const handleShareEmail = async ({ recipientEmail, message }) => {
     try {
-      const res = await fetch(`${API_BASE}/${id}/share`, {
+      const res = await fetch(`${API_BASE}/submissions/${id}/share`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -276,12 +290,11 @@ export default function App() {
 
   const fetchPendingBadge = async () => {
     try {
-      const res = await fetch(`${API_BASE}/pending`, {
+      const res = await fetch(`${API_BASE}/submissions/pending`, {
         headers: { 'x-user-id': currentUser.id }
       });
       const json = await res.json();
       
-      // Cập nhật đếm số lượng badge Pending linh hoạt với 2 lớp data
       let badgeCount = 0;
       if (Array.isArray(json)) {
         badgeCount = json.length;
@@ -300,17 +313,24 @@ export default function App() {
     fetchPendingBadge();
   }, [currentUser, location.pathname]);
 
+  // =========================================================================
+  // XỬ LÝ TẠO TỜ TRÌNH VÀ TỰ ĐỘNG GỬI FILE QUA FORMDATA
+  // =========================================================================
   const handleCreateSubmission = async (payload) => {
     try {
+      // 1. Tách attachments ra riêng để không bị chuỗi hóa JSON hỏng
+      const { attachments = [], ...submissionData } = payload;
+
       const submissionPayload = {
-        ...payload,
+        ...submissionData,
         steps: [
           { approver_id: 'CCFBF940-472B-4830-BC0F-A973A8ACC403', step_role: 'REVIEWER' },
           { approver_id: 'F702E2F8-37CE-40BA-828D-D3F27C82B73A', step_role: 'APPROVER' }
         ]
       };
 
-      const res = await fetch(API_BASE, {
+      // Gọi tạo tờ trình trước
+      const res = await fetch(`${API_BASE}/submissions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -320,13 +340,42 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (res.ok) {
-        setIsCreateOpen(false);
-        navigate('/submissions/my-submissions');
-        alert('Khởi tạo và gửi trình hồ sơ thành công!');
-      } else {
+      if (!res.ok) {
         alert(data.error || 'Lỗi khi tạo tờ trình.');
+        return;
       }
+
+      // Lấy ID tờ trình vừa tạo thành công
+      const createdId = typeof data.submission_id === 'object' 
+        ? data.submission_id.submission_id 
+        : data.submission_id;
+
+      // 2. NẾU CÓ CHỌN FILE ĐÍNH KÈM: ĐẨY LÊN API ATTACHMENTS
+      if (attachments && attachments.length > 0) {
+        const formData = new FormData();
+        attachments.forEach((file) => {
+          formData.append('files', file); // 'files' trùng khớp với upload.array('files') của multer
+        });
+
+        const uploadRes = await fetch(`${API_BASE}/submissions/${createdId}/attachments`, {
+          method: 'POST',
+          headers: {
+            'x-user-id': currentUser.id
+            // Không được thêm 'Content-Type', browser sẽ tự sinh boundary cho FormData
+          },
+          body: formData
+        });
+
+        if (!uploadRes.ok) {
+          const uploadErr = await uploadRes.json();
+          console.error('[Upload Attachments Error]:', uploadErr);
+          alert('Tờ trình đã tạo nhưng tải file thất bại: ' + (uploadErr.error || ''));
+        }
+      }
+
+      setIsCreateOpen(false);
+      navigate('/submissions/my-submissions');
+      alert('Khởi tạo và gửi trình hồ sơ thành công!');
     } catch (err) {
       alert('Lỗi kết nối máy chủ: ' + err.message);
     }

@@ -4,6 +4,7 @@ const cors = require('cors');
 const { poolPromise } = require('./config/db');
 const submissionRoutes = require('./routes/submission.routes');
 const app = express();
+const attachmentRoutes = require('./routes/attachment.route');
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
@@ -11,6 +12,7 @@ app.use(express.json());
 // Kiểm tra kết nối cơ sở dữ liệu và trả về trạng thái
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/submissions', submissionRoutes);
+app.use('/api', attachmentRoutes);
 app.get('/health', async (req, res) => {
   try {
     const pool = await poolPromise;

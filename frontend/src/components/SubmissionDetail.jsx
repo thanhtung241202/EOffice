@@ -1,10 +1,9 @@
-// src/components/SubmissionDetail.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, CheckCircle2, Clock, 
   Send, RotateCcw, XCircle, UploadCloud, 
   Settings, MessageSquare, AlertTriangle, Edit3, Trash2,
-  Share2, X // <-- Đã thêm icon Share và X
+  Share2, X, Paperclip, FileText, Download, Loader2
 } from 'lucide-react';
 
 export default function SubmissionDetail({ 
@@ -15,12 +14,12 @@ export default function SubmissionDetail({
   onReject, 
   onResubmit,
   onDelete,
-  onShareEmail, // <-- Nhận hàm chia sẻ từ App.jsx
+  onShareEmail, 
   currentUserId 
 }) {
-  const { submission, approval_steps = [], comments = [] } = detailData || {};
+  const { submission, approval_steps = [], comments = [], attachments = [] } = detailData || {};
 
-  // Form state cho việc chỉnh sửa khi bị RETURNED
+
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editCategory, setEditCategory] = useState('');
@@ -28,7 +27,13 @@ export default function SubmissionDetail({
   const [editConfidentiality, setEditConfidentiality] = useState('NORMAL');
   const [resubmitComment, setResubmitComment] = useState('');
 
-  // Comment ý kiến của Approver khi thực hiện Approve / Return / Reject
+
+  const [newAttachments, setNewAttachments] = useState([]);
+  const fileInputRef = useRef(null);
+
+  // Trạng thái tải file (downloading)
+  const [downloadingId, setDownloadingId] = useState(null);
+
   const [approverComment, setApproverComment] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
 
@@ -37,7 +42,6 @@ export default function SubmissionDetail({
   const [shareEmail, setShareEmail] = useState('');
   const [shareMessage, setShareMessage] = useState('');
 
-  // Đồng bộ dữ liệu khi xem tờ trình khác hoặc dữ liệu được làm mới
   useEffect(() => {
     if (submission) {
       setEditTitle(submission.title || '');
@@ -46,6 +50,7 @@ export default function SubmissionDetail({
       setEditPriority(submission.priority || 'NORMAL');
       setEditConfidentiality(submission.confidentiality || 'NORMAL');
       setResubmitComment('');
+      setNewAttachments([]);
     }
   }, [submission]);
 
@@ -68,6 +73,53 @@ export default function SubmissionDetail({
     activeStep?.approver_id?.toLowerCase() === currentUserId?.toLowerCase() && 
     activeStep?.status === 'PENDING';
 
+  // Format kích thước file
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+const handleDownloadAttachment = async (attachmentId) => {
+    try {
+      setDownloadingId(attachmentId);
+      
+
+      const res = await fetch(`http://localhost:5000/api/attachments/${attachmentId}/download`, {
+        headers: {
+          'x-user-id': currentUserId
+        }
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi tải file');
+      
+      // Mở đường dẫn signed URL của Supabase trong tab mới
+      if (data.download_url) {
+        window.open(data.download_url, '_blank');
+      } else {
+        alert('Không tìm thấy đường dẫn tải về.');
+      }
+    } catch (err) {
+      console.error('[Download Attachment Error]:', err);
+      alert(err.message);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    setNewAttachments((prev) => [...prev, ...files]);
+    e.target.value = '';
+  };
+
+  const handleRemoveNewFile = (index) => {
+    setNewAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleResubmit = async (e) => {
     if (e) e.preventDefault();
     if (!editTitle.trim() || !editContent.trim()) {
@@ -85,7 +137,8 @@ export default function SubmissionDetail({
       category: editCategory,
       priority: editPriority,
       confidentiality: editConfidentiality,
-      resubmit_comment: resubmitComment.trim()
+      resubmit_comment: resubmitComment.trim(),
+      new_attachments: newAttachments // File mới đính kèm thêm
     });
     setSubmittingAction(false);
   };
@@ -111,7 +164,6 @@ export default function SubmissionDetail({
     setSubmittingAction(false);
   };
 
-  // Hàm Submit Modal Chia sẻ
   const handleShareSubmit = (e) => {
     e.preventDefault();
     if (!shareEmail.trim()) return alert('Vui lòng nhập email người nhận.');
@@ -184,7 +236,6 @@ export default function SubmissionDetail({
             </>
           )}
 
-          {/* NÚT CHIA SẺ */}
           <button 
             onClick={() => setIsShareModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors"
@@ -327,6 +378,95 @@ export default function SubmissionDetail({
             )}
           </div>
 
+ 
+          <div className="pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-red-600" />
+                <span>Tài liệu đính kèm ({attachments.length})</span>
+              </label>
+              {canEditAndResubmit && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[11px] font-semibold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1"
+                >
+                  + Thêm tài liệu mới
+                </button>
+              )}
+            </div>
+
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              multiple 
+              className="hidden" 
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+            />
+
+            {attachments.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {attachments.map((file) => (
+                  <div 
+                    key={file.id} 
+                    className="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition"
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden mr-2">
+                      <FileText className="w-4 h-4 text-gray-500 shrink-0" />
+                      <div className="truncate">
+                        <p className="text-xs font-medium text-gray-800 truncate" title={file.file_name}>
+                          {file.file_name}
+                        </p>
+                        <span className="text-[10px] text-gray-400">
+                          {formatFileSize(file.file_size)}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={downloadingId === file.id}
+                      onClick={() => handleDownloadAttachment(file.id)}
+                      className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition shrink-0"
+                      title="Tải / Mở tệp tin"
+                    >
+                      {downloadingId === file.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 italic">Không có tài liệu đính kèm.</p>
+            )}
+
+            {/* Danh sách tệp người dùng vừa chọn thêm (khi đang resubmit) */}
+            {newAttachments.length > 0 && (
+              <div className="mt-3 space-y-1.5 bg-red-50/20 p-2.5 rounded-lg border border-red-200/50">
+                <span className="text-[11px] font-bold text-red-700">Tệp bổ sung sẽ tải lên khi nộp lại:</span>
+                {newAttachments.map((file, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-1.5 bg-white border border-gray-200 rounded text-xs">
+                    <div className="flex items-center gap-1.5 truncate max-w-[85%]">
+                      <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span className="truncate text-gray-700">{file.name}</span>
+                      <span className="text-[10px] text-gray-400 shrink-0">({formatFileSize(file.size)})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveNewFile(idx)}
+                      className="p-1 text-gray-400 hover:text-red-600"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {canEditAndResubmit && (
             <div className="pt-3 border-t border-gray-100 bg-amber-50/50 p-4 rounded-xl border border-amber-200">
               <label className="block text-xs font-bold text-amber-900 mb-1 flex items-center gap-1.5">
@@ -451,7 +591,6 @@ export default function SubmissionDetail({
         </div>
       </div>
 
-      {/* POPUP MODAL CHIA SẺ */}
       {isShareModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
@@ -502,7 +641,7 @@ export default function SubmissionDetail({
                   Hủy
                 </button>
                 <button 
-                  type="submit"
+                  type="submit" 
                   className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 font-medium text-sm"
                 >
                   Gửi chia sẻ

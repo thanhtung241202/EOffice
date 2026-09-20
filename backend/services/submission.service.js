@@ -6,6 +6,7 @@ const CommentModel = require('../models/comment.model');
 const NotificationModel = require('../models/notification.model');
 const SubmissionViewerModel = require('../models/submissionViewer.model');
 const UserModel = require('../models/user.model');
+const AttachmentModel = require('../models/attachment.model');
 const SubmissionService = {
   // 1. Tạo mới tờ trình kèm các bước phê duyệt & thông báo cho Bước 1
   async createSubmission(payload, userId) {
@@ -99,24 +100,28 @@ const SubmissionService = {
 
   // 5. Lấy chi tiết hồ sơ, chuỗi duyệt và lịch sử ý kiến
   async getSubmissionDetail(submissionId) {
-    const pool = await poolPromise;
+  const pool = await poolPromise;
 
-    const submission = await SubmissionModel.getDetail(submissionId, pool);
-    if (!submission) {
-      const error = new Error('Tờ trình không tồn tại hoặc đã bị xoá.');
-      error.statusCode = 404;
-      throw error;
-    }
+  const submission = await SubmissionModel.getDetail(submissionId, pool);
+  if (!submission) {
+    const error = new Error('Tờ trình không tồn tại hoặc đã bị xoá.');
+    error.statusCode = 404;
+    throw error;
+  }
 
-    const approval_steps = await ApprovalStepModel.getBySubmissionId(submissionId, pool);
-    const comments = await CommentModel.getBySubmissionId(submissionId, pool);
+  const approval_steps = await ApprovalStepModel.getBySubmissionId(submissionId, pool);
+  const comments = await CommentModel.getBySubmissionId(submissionId, pool);
+  
+  // Lấy thêm danh sách file đính kèm
+  const attachments = await AttachmentModel.getBySubmissionId(submissionId, pool);
 
-    return {
-      submission,
-      approval_steps,
-      comments
-    };
-  },
+  return {
+    submission,
+    approval_steps,
+    comments,
+    attachments // Trả về kèm chi tiết
+  };
+},
 
   // 6. Xử lý hành động phê duyệt (APPROVE / RETURN / REJECT) & Bắn thông báo tương ứng
   async executeAction({ submissionId, action, comment, userId }) {
