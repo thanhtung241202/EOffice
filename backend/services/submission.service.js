@@ -431,6 +431,15 @@ const SubmissionService = {
       data
     };
   },
+
+  async getApprovedSubmissions() {
+    const pool = await poolPromise;
+    const data = await SubmissionModel.getApprovedList(pool);
+    return {
+      total: data.length,
+      data
+    };
+  },
 };
 
 module.exports = SubmissionService;

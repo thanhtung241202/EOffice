@@ -116,6 +116,10 @@ function SubmissionsListPage({ endpoint, currentUser, onOpenCreateModal }) {
         <p className="text-gray-400 text-xs mt-1.5">
           {endpoint === 'pending' 
             ? 'Bạn hiện không có hồ sơ nào đang chờ duyệt đến từ các đồng nghiệp.' 
+            : endpoint === 'approved'
+            ? 'Chưa có tờ trình nào được hoàn tất phê duyệt trong hệ thống.'
+            : endpoint === 'processed'
+            ? 'Bạn chưa có hồ sơ nào đã hoàn tất xử lý.'
             : 'Chưa có dữ liệu để hiển thị.'}
         </p>
       </div>
@@ -177,7 +181,7 @@ function SubmissionDetailPageWrapper({ currentUser }) {
 
   const handleResubmit = async (updatePayload) => {
     try {
-      // 1. Nếu có tệp mới bổ sung khi nộp lại, tải lên trước
+      // 1. Tải lên tệp đính kèm mới nếu có chọn thêm
       if (updatePayload.new_attachments && updatePayload.new_attachments.length > 0) {
         const attachFormData = new FormData();
         updatePayload.new_attachments.forEach((file) => {
@@ -193,7 +197,7 @@ function SubmissionDetailPageWrapper({ currentUser }) {
         });
       }
 
-      // 2. Nộp lại nội dung tờ trình
+      // 2. Gửi request resubmit nội dung
       const { new_attachments, ...resubmitData } = updatePayload;
       const res = await fetch(`${API_BASE}/submissions/${id}/resubmit`, {
         method: 'PUT',
@@ -282,6 +286,7 @@ export default function App() {
   const getCurrentTab = () => {
     if (location.pathname.includes('/submissions/my-submissions')) return 'my_submissions';
     if (location.pathname.includes('/submissions/processed')) return 'processed';
+    if (location.pathname.includes('/submissions/approved')) return 'approved';
     if (location.pathname.includes('/submissions/shared')) return 'shared';
     return 'pending';
   };
@@ -329,7 +334,7 @@ export default function App() {
         ]
       };
 
-      // Gọi tạo tờ trình trước
+      // Tạo bản ghi tờ trình trước
       const res = await fetch(`${API_BASE}/submissions`, {
         method: 'POST',
         headers: {
@@ -345,23 +350,22 @@ export default function App() {
         return;
       }
 
-      // Lấy ID tờ trình vừa tạo thành công
+      // Lấy ID tờ trình vừa tạo
       const createdId = typeof data.submission_id === 'object' 
         ? data.submission_id.submission_id 
         : data.submission_id;
 
-      // 2. NẾU CÓ CHỌN FILE ĐÍNH KÈM: ĐẨY LÊN API ATTACHMENTS
+      // 2. Nếu có chọn file: Đẩy lên API attachments
       if (attachments && attachments.length > 0) {
         const formData = new FormData();
         attachments.forEach((file) => {
-          formData.append('files', file); // 'files' trùng khớp với upload.array('files') của multer
+          formData.append('files', file);
         });
 
         const uploadRes = await fetch(`${API_BASE}/submissions/${createdId}/attachments`, {
           method: 'POST',
           headers: {
             'x-user-id': currentUser.id
-            // Không được thêm 'Content-Type', browser sẽ tự sinh boundary cho FormData
           },
           body: formData
         });
@@ -383,21 +387,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans antialiased text-gray-900">
-      <Sidebar
-        currentTab={currentTab}
-        setCurrentTab={(tab) => {
-          if (tab === 'my_submissions') {
-            navigate('/submissions/my-submissions');
-          } else if (tab === 'processed') {
-            navigate('/submissions/processed');
-          } else if (tab === 'shared') {
-            navigate('/submissions/shared');
-          } else {
-            navigate('/submissions/pending');
-          }
-        }}
-        pendingCount={pendingCount}
-      />
+      <Sidebar pendingCount={pendingCount} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header currentUser={currentUser} />
@@ -465,6 +455,18 @@ export default function App() {
               element={
                 <SubmissionsListPage
                   endpoint="processed"
+                  currentUser={currentUser}
+                  onOpenCreateModal={() => setIsCreateOpen(true)}
+                />
+              }
+            />
+
+            {/* ROUTE MỚI: TỜ TRÌNH ĐÃ PHÊ DUYỆT */}
+            <Route
+              path="/submissions/approved"
+              element={
+                <SubmissionsListPage
+                  endpoint="approved"
                   currentUser={currentUser}
                   onOpenCreateModal={() => setIsCreateOpen(true)}
                 />

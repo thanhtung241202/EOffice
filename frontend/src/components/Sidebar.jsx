@@ -2,9 +2,8 @@
 import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
-  Inbox, FileText, CheckCircle2, Share2, 
-  ChevronDown, ChevronRight, UserCheck, Stamp, 
-  FileSpreadsheet, Globe, ChevronLeft
+  Inbox, FileText, CheckCircle2, CheckCheck, Share2, 
+  ChevronDown, ChevronRight, FileSpreadsheet, Globe, ChevronLeft
 } from 'lucide-react';
 
 export default function Sidebar({ pendingCount = 0 }) {
@@ -23,11 +22,15 @@ export default function Sidebar({ pendingCount = 0 }) {
       label: 'Tờ trình của tôi', 
       icon: FileText 
     },
-    // Các tab dự kiến phát triển tiếp
     { 
       path: '/submissions/processed', 
       label: 'Tờ trình đã xử lý', 
       icon: CheckCircle2 
+    },
+    { 
+      path: '/submissions/approved', 
+      label: 'Tờ trình đã phê duyệt', 
+      icon: CheckCheck 
     },
     { 
       path: '/submissions/shared', 

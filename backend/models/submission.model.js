@@ -238,7 +238,32 @@ const SubmissionModel = {
         ORDER BY s.updated_at DESC;
       `);
     return result.recordset;
-  }
+  },
+  async getApprovedList(pool) {
+    const request = pool.request();
+    const result = await request.query(`
+      SELECT 
+        s.id,
+        s.document_code,
+        s.title,
+        s.category,
+        s.priority,
+        s.confidentiality,
+        s.status,
+        s.total_steps,
+        s.created_at,
+        s.completed_at,
+        creator.name AS creator_name,
+        creator.department AS creator_department,
+        final_app.name AS final_approver_name
+      FROM submissions s
+      INNER JOIN users creator ON s.created_by_id = creator.id
+      LEFT JOIN users final_app ON s.final_approver_id = final_app.id
+      WHERE s.status = 'APPROVED' AND s.deleted_at IS NULL
+      ORDER BY s.completed_at DESC;
+    `);
+    return result.recordset;
+  },
 };
 
 module.exports = SubmissionModel;

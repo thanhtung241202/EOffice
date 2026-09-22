@@ -12,14 +12,14 @@ const mockAuth = (req, res, next) => {
   next();
 };
 
-// 1. CÁC ROUTE TĨNH (BẮT BUỘC ĐẶT TRÊN CÙNG)
+// 1. CÁC ROUTE TĨNH 
 router.post('/', mockAuth, SubmissionController.create);
 router.get('/pending', mockAuth, SubmissionController.getPending);
 router.get('/my-submissions', mockAuth, SubmissionController.getMySubmissions);
 router.get('/processed', mockAuth, SubmissionController.getProcessed);
 router.get('/shared', mockAuth, SubmissionController.getShared);
-
-// 2. CÁC ROUTE ĐỘNG CÓ THAM SỐ :id (ĐẶT DƯỚI CÙNG)
+router.get('/approved', SubmissionController.getApproved);
+// 2. CÁC ROUTE ĐỘNG CÓ THAM SỐ :id 
 //router.post('/:id/share', mockAuth, SubmissionController.share);
 router.delete('/:id', mockAuth, SubmissionController.delete);
 router.post('/:id/action', mockAuth, SubmissionController.action);

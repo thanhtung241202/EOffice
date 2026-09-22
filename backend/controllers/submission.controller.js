@@ -221,6 +221,16 @@ const SubmissionController = {
       });
     }
   },
+
+  async getApproved(req, res) {
+    try {
+      const result = await SubmissionService.getApprovedSubmissions();
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error('[Get Approved Error]:', error);
+      return res.status(500).json({ error: 'Lỗi khi lấy danh sách tờ trình đã phê duyệt.' });
+    }
+  },
 };
 
 module.exports = SubmissionController;
