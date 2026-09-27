@@ -231,6 +231,40 @@ const SubmissionController = {
       return res.status(500).json({ error: 'Lỗi khi lấy danh sách tờ trình đã phê duyệt.' });
     }
   },
+  async search(req, res) {
+    try {
+      const { q } = req.query;
+      const results = await SubmissionService.searchSubmissions(q);
+
+      return res.status(200).json({ data: results });
+    } catch (error) {
+      console.error('[Search Submissions Error]:', error);
+      return res.status(500).json({ 
+        error: 'Lỗi khi tìm kiếm tờ trình.',
+        details: error.message 
+      });
+    }
+  },
+  async getDrafts(req, res) {
+    try {
+      const userId = req.headers['x-user-id'];
+      const result = await SubmissionService.getDraftSubmissions(userId);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  async publishDraft(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.headers['x-user-id'];
+      const result = await SubmissionService.publishDraft(id, userId);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(err.statusCode || 500).json({ error: err.message });
+    }
+  }
 };
 
 module.exports = SubmissionController;

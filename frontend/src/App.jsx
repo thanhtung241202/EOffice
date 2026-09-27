@@ -6,8 +6,9 @@ import Header from './components/Header';
 import SubmissionTable from './components/SubmissionTable';
 import SubmissionDetail from './components/SubmissionDetail';
 import CreateSubmissionModal from './components/CreateSubmissionModal';
+import AdminUserManagement from './components/AdminUserManagement';
 
-// Tách base URL gốc thành /api để linh hoạt gọi các route khác nhau
+// Base URL gốc cho các API
 const API_BASE = 'http://localhost:5000/api';
 
 const SYSTEM_USERS = [
@@ -17,7 +18,8 @@ const SYSTEM_USERS = [
     email: 'it.creator@eoffice.vn',
     department: 'Phòng IT',
     job_title: 'Kỹ sư Phần mềm',
-    roleTag: 'Người tạo'
+    roleTag: 'Người tạo',
+    is_admin: false
   },
   {
     id: 'CCFBF940-472B-4830-BC0F-A973A8ACC403',
@@ -25,7 +27,8 @@ const SYSTEM_USERS = [
     email: 'acc.reviewer@eoffice.vn',
     department: 'Kế toán',
     job_title: 'Kế toán Soát xét',
-    roleTag: 'Soát xét (Bước 1)'
+    roleTag: 'Soát xét (Bước 1)',
+    is_admin: false
   },
   {
     id: 'F702E2F8-37CE-40BA-828D-D3F27C82B73A',
@@ -33,7 +36,8 @@ const SYSTEM_USERS = [
     email: 'ceo.approver@eoffice.vn',
     department: 'Ban Giám đốc',
     job_title: 'Tổng Giám đốc (CEO)',
-    roleTag: 'Phê duyệt (Bước 2)'
+    roleTag: 'Phê duyệt (Bước 2)',
+    is_admin: false
   },
   {
     id: '1C54B93B-090F-4B81-9F1E-A9FE888F4FD7',
@@ -41,7 +45,8 @@ const SYSTEM_USERS = [
     email: 'audit.viewer@eoffice.vn',
     department: 'Ban Kiểm toán',
     job_title: 'Kiểm toán viên Nội bộ',
-    roleTag: 'Theo dõi / CC'
+    roleTag: 'Theo dõi / CC',
+    is_admin: false
   },
   {
     id: 'C52C6B21-FC39-4333-8434-9ED18FD89147',
@@ -49,7 +54,8 @@ const SYSTEM_USERS = [
     email: 'admin.system@eoffice.vn',
     department: 'Hệ thống',
     job_title: 'System Administrator',
-    roleTag: 'Quản trị'
+    roleTag: 'Quản trị',
+    is_admin: true
   }
 ];
 
@@ -283,16 +289,6 @@ export default function App() {
   const [pendingCount, setPendingCount] = useState(0);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  const getCurrentTab = () => {
-    if (location.pathname.includes('/submissions/my-submissions')) return 'my_submissions';
-    if (location.pathname.includes('/submissions/processed')) return 'processed';
-    if (location.pathname.includes('/submissions/approved')) return 'approved';
-    if (location.pathname.includes('/submissions/shared')) return 'shared';
-    return 'pending';
-  };
-
-  const currentTab = getCurrentTab();
-
   const fetchPendingBadge = async () => {
     try {
       const res = await fetch(`${API_BASE}/submissions/pending`, {
@@ -318,23 +314,21 @@ export default function App() {
     fetchPendingBadge();
   }, [currentUser, location.pathname]);
 
-  // =========================================================================
-  // XỬ LÝ TẠO TỜ TRÌNH VÀ TỰ ĐỘNG GỬI FILE QUA FORMDATA
-  // =========================================================================
+  // Xử lý tạo tờ trình và tự động gửi file qua FormData (hỗ trợ cả DRAFT và IN_PROGRESS)
   const handleCreateSubmission = async (payload) => {
     try {
-      // 1. Tách attachments ra riêng để không bị chuỗi hóa JSON hỏng
-      const { attachments = [], ...submissionData } = payload;
+      const { attachments = [], status = 'IN_PROGRESS', ...submissionData } = payload;
+      const isDraft = status === 'DRAFT';
 
       const submissionPayload = {
         ...submissionData,
+        status,
         steps: [
           { approver_id: 'CCFBF940-472B-4830-BC0F-A973A8ACC403', step_role: 'REVIEWER' },
           { approver_id: 'F702E2F8-37CE-40BA-828D-D3F27C82B73A', step_role: 'APPROVER' }
         ]
       };
 
-      // Tạo bản ghi tờ trình trước
       const res = await fetch(`${API_BASE}/submissions`, {
         method: 'POST',
         headers: {
@@ -350,12 +344,10 @@ export default function App() {
         return;
       }
 
-      // Lấy ID tờ trình vừa tạo
       const createdId = typeof data.submission_id === 'object' 
         ? data.submission_id.submission_id 
         : data.submission_id;
 
-      // 2. Nếu có chọn file: Đẩy lên API attachments
       if (attachments && attachments.length > 0) {
         const formData = new FormData();
         attachments.forEach((file) => {
@@ -373,13 +365,13 @@ export default function App() {
         if (!uploadRes.ok) {
           const uploadErr = await uploadRes.json();
           console.error('[Upload Attachments Error]:', uploadErr);
-          alert('Tờ trình đã tạo nhưng tải file thất bại: ' + (uploadErr.error || ''));
+          alert('Tờ trình đã lưu nhưng tải file thất bại: ' + (uploadErr.error || ''));
         }
       }
 
       setIsCreateOpen(false);
       navigate('/submissions/my-submissions');
-      alert('Khởi tạo và gửi trình hồ sơ thành công!');
+      alert(isDraft ? 'Đã lưu bản nháp tờ trình thành công!' : 'Khởi tạo và gửi trình hồ sơ thành công!');
     } catch (err) {
       alert('Lỗi kết nối máy chủ: ' + err.message);
     }
@@ -387,11 +379,16 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans antialiased text-gray-900">
-      <Sidebar pendingCount={pendingCount} />
+      {/* Sidebar nhận diện cờ Admin để hiển thị/ẩn menu */}
+      <Sidebar 
+        pendingCount={pendingCount} 
+        isAdmin={Boolean(currentUser.is_admin)} 
+      />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header currentUser={currentUser} />
 
+        {/* Thanh giả lập đổi tài khoản test */}
         <div className="bg-amber-50/90 border-b border-amber-200 px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-950">
           <div className="flex items-center gap-1.5">
             <span className="font-medium text-amber-800">Tài khoản đang đăng nhập:</span>
@@ -439,6 +436,7 @@ export default function App() {
               }
             />
             
+            {/* Tờ trình của tôi: hiển thị cả tờ trình nháp (DRAFT) lẫn đang xử lý (IN_PROGRESS) */}
             <Route
               path="/submissions/my-submissions"
               element={
@@ -461,7 +459,6 @@ export default function App() {
               }
             />
 
-            {/* ROUTE MỚI: TỜ TRÌNH ĐÃ PHÊ DUYỆT */}
             <Route
               path="/submissions/approved"
               element={
@@ -487,6 +484,18 @@ export default function App() {
             <Route
               path="/submissions/:id"
               element={<SubmissionDetailPageWrapper currentUser={currentUser} />}
+            />
+
+            {/* ROUTE DÀNH CHO ADMIN: CHẶN USER THƯỜNG TRUY CẬP TRỰC TIẾP QUA URL */}
+            <Route
+              path="/admin/users"
+              element={
+                currentUser.is_admin ? (
+                  <AdminUserManagement currentAdminId={currentUser.id} />
+                ) : (
+                  <Navigate to="/submissions/pending" replace />
+                )
+              }
             />
           </Routes>
         </main>

@@ -3,10 +3,11 @@ import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
   Inbox, FileText, CheckCircle2, CheckCheck, Share2, 
-  ChevronDown, ChevronRight, FileSpreadsheet, Globe, ChevronLeft
+  ChevronDown, ChevronRight, FileSpreadsheet, Globe, ChevronLeft,
+  ShieldCheck
 } from 'lucide-react';
 
-export default function Sidebar({ pendingCount = 0 }) {
+export default function Sidebar({ pendingCount = 0, isAdmin = false }) {
   const [openApproval, setOpenApproval] = useState(true);
   const location = useLocation();
 
@@ -102,7 +103,34 @@ export default function Sidebar({ pendingCount = 0 }) {
           )}
         </div>
 
-        {/* Các module phụ */}
+        {/* Khối Quản trị hệ thống - CHỈ HIỂN THỊ VỚI TÀI KHOẢN ADMIN */}
+        {isAdmin && (
+          <div className="pt-3 border-t border-gray-100">
+            <div className="px-3 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+              Quản trị hệ thống
+            </div>
+            <NavLink
+              to="/admin/users"
+              className={({ isActive }) =>
+                `w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-lg transition-all ${
+                  isActive
+                    ? 'bg-red-50 text-red-700 font-semibold shadow-xs'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`
+              }
+            >
+              <div className="flex items-center gap-2.5 truncate">
+                <ShieldCheck className={`w-4 h-4 ${location.pathname === '/admin/users' ? 'text-red-600' : 'text-gray-400'}`} />
+                <span className="truncate">Quản trị & Cơ cấu</span>
+              </div>
+              <span className="text-[9px] bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded">
+                Admin
+              </span>
+            </NavLink>
+          </div>
+        )}
+
+        {/* Các module phụ khác */}
         <div className="pt-3 border-t border-gray-100">
           <button className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 rounded-lg">
             <div className="flex items-center gap-2.5">

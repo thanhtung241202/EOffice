@@ -264,6 +264,71 @@ const SubmissionModel = {
     `);
     return result.recordset;
   },
-};
+ async search(keyword, pool) {
+    const request = pool.request();
+    const cleanKeyword = keyword.replace(/^#/, '').trim();
 
+    const result = await request
+      .input('keyword', sql.NVarChar(255), `%${cleanKeyword}%`)
+      .query(`
+        SELECT TOP 10
+          s.id,
+          s.document_code,
+          s.title,
+          s.category,
+          s.status,
+          s.created_at,
+          u.name AS creator_name
+        FROM submissions s
+        INNER JOIN users u ON s.created_by_id = u.id
+        WHERE s.deleted_at IS NULL
+          AND (
+            s.title LIKE @keyword 
+            OR s.document_code LIKE @keyword
+            OR CAST(s.id AS NVARCHAR(36)) LIKE @keyword -- Ép kiểu UNIQUEIDENTIFIER sang chuỗi để tìm kiếm mã ID rút gọn
+            OR u.name LIKE @keyword
+          )
+        ORDER BY s.updated_at DESC;
+      `);
+    return result.recordset;
+  },
+  async getDraftsByCreator(userId, pool) {
+    const request = pool.request();
+    const result = await request
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .query(`
+        SELECT 
+          s.id, s.title, s.category, s.priority, s.confidentiality,
+          s.status, s.created_at, s.updated_at,
+          u.name AS creator_name
+        FROM submissions s
+        INNER JOIN users u ON s.created_by_id = u.id
+        WHERE s.created_by_id = @user_id 
+          AND s.status = 'DRAFT' 
+          AND s.deleted_at IS NULL
+        ORDER BY s.updated_at DESC;
+      `);
+    return result.recordset;
+  },
+
+  // 2. Kích hoạt tờ trình nháp vào luồng phê duyệt (DRAFT -> IN_PROGRESS)
+  async publishDraft(submissionId, poolOrTransaction) {
+    const request = new sql.Request(poolOrTransaction);
+    await request
+      .input('id', sql.UniqueIdentifier, submissionId)
+      .query(`
+        UPDATE submissions
+        SET 
+          status = 'IN_PROGRESS',
+          current_step_order = 1,
+          updated_at = SYSDATETIMEOFFSET()
+        WHERE id = @id AND status = 'DRAFT';
+
+        -- Chuyển bước 1 sang PENDING để người duyệt bắt đầu xử lý
+        UPDATE approval_steps
+        SET status = 'PENDING', updated_at = SYSDATETIMEOFFSET()
+        WHERE submission_id = @id AND step_order = 1;
+      `);
+  }
+}
 module.exports = SubmissionModel;

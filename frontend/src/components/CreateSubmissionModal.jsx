@@ -1,5 +1,6 @@
+// src/components/CreateSubmissionModal.jsx
 import React, { useState, useRef } from 'react';
-import { X, Paperclip, FileText, Trash2 } from 'lucide-react';
+import { X, Paperclip, FileText, Trash2, BookmarkCheck, Send } from 'lucide-react';
 
 export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, usersList = [] }) {
   if (!isOpen) return null;
@@ -9,14 +10,14 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
   const [category, setCategory] = useState('Tuyển dụng - Nhân sự - Đào tạo');
   const [priority, setPriority] = useState('NORMAL');
   const [confidentiality, setConfidentiality] = useState('NORMAL');
-  const [attachments, setAttachments] = useState([]); // Quản lý danh sách file đính kèm
+  const [attachments, setAttachments] = useState([]);
 
   const fileInputRef = useRef(null);
 
-  // Chuỗi duyệt mẫu (Bước 1: Trưởng phòng, Bước 2: Giám đốc)
+  // Chuỗi duyệt mẫu (Bước 1: Trưởng phòng/Kế toán, Bước 2: Giám đốc)
   const [steps, setSteps] = useState([
-    { approver_id: '22222222-2222-2222-2222-222222222222', step_role: 'REVIEWER' },
-    { approver_id: '33333333-3333-3333-3333-333333333333', step_role: 'APPROVER' }
+    { approver_id: 'CCFBF940-472B-4830-BC0F-A973A8ACC403', step_role: 'REVIEWER' },
+    { approver_id: 'F702E2F8-37CE-40BA-828D-D3F27C82B73A', step_role: 'APPROVER' }
   ]);
 
   // Xử lý khi chọn file từ máy
@@ -24,14 +25,13 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
 
-    // Giới hạn tổng số lượng tối đa 5 file
     if (attachments.length + selectedFiles.length > 5) {
       alert('Bạn chỉ có thể đính kèm tối đa 5 tài liệu.');
       return;
     }
 
     setAttachments((prev) => [...prev, ...selectedFiles]);
-    e.target.value = ''; // Reset input để có thể chọn lại file cùng tên nếu muốn
+    e.target.value = '';
   };
 
   // Xóa file khỏi danh sách tạm
@@ -39,29 +39,29 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
     setAttachments((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  // Định dạng hiển thị dung lượng file (KB/MB)
+  // Định dạng dung lượng file
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!title || !content) {
+  // Xử lý nộp form: targetStatus = 'DRAFT' (Lưu nháp) hoặc 'IN_PROGRESS' (Gửi duyệt)
+  const handleAction = (targetStatus) => {
+    if (!title.trim() || !content.trim()) {
       alert('Vui lòng nhập đầy đủ tiêu đề và nội dung.');
       return;
     }
 
-    // Gửi kèm mảng attachments lên component cha
     onSubmit({
-      title,
-      content,
+      title: title.trim(),
+      content: content.trim(),
       category,
       priority,
       confidentiality,
+      status: targetStatus, // Gửi cờ DRAFT hoặc IN_PROGRESS
       steps,
-      attachments // Array chứa các File object
+      attachments
     });
   };
 
@@ -69,13 +69,13 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-base font-bold text-gray-800">Tạo tờ trình phê duyệt mới</h2>
+          <h2 className="text-base font-bold text-gray-800">Tạo tờ trình mới</h2>
           <button onClick={onClose} className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        <form onSubmit={(e) => { e.preventDefault(); handleAction('IN_PROGRESS'); }} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">Tiêu đề tờ trình *</label>
             <input 
@@ -94,7 +94,7 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
               <select 
                 value={category} 
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg"
+                className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg bg-white"
               >
                 <option>Tuyển dụng - Nhân sự - Đào tạo</option>
                 <option>Đề xuất mua sắm</option>
@@ -106,7 +106,7 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
               <select 
                 value={priority} 
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg"
+                className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg bg-white"
               >
                 <option value="NORMAL">Bình thường</option>
                 <option value="URGENT">Khẩn cấp</option>
@@ -117,7 +117,7 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
               <select 
                 value={confidentiality} 
                 onChange={(e) => setConfidentiality(e.target.value)}
-                className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg"
+                className="w-full text-xs px-2.5 py-2 border border-gray-200 rounded-lg bg-white"
               >
                 <option value="NORMAL">Bình thường</option>
                 <option value="CONFIDENTIAL">Mật</option>
@@ -144,7 +144,6 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
               <span className="text-[11px] text-gray-400">Tối đa 5 tệp (mỗi tệp &le; 25MB)</span>
             </div>
 
-            {/* Input file ẩn */}
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -154,17 +153,15 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
               accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
             />
 
-            {/* Nút bấm chọn tệp */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full py-2.5 px-3 border border-dashed border-gray-300 rounded-lg flex items-center justify-center gap-2 text-xs text-gray-600 hover:border-red-500 hover:text-red-600 hover:bg-red-50/20 transition"
+              className="w-full py-2.5 px-3 border border-dashed border-gray-300 rounded-lg flex items-center justify-center gap-2 text-xs text-gray-600 hover:border-red-500 hover:text-red-600 hover:bg-red-50/20 transition cursor-pointer"
             >
               <Paperclip className="w-4 h-4" />
               <span>Nhấp để tải lên tệp tin từ máy tính</span>
             </button>
 
-            {/* Danh sách tệp đã chọn */}
             {attachments.length > 0 && (
               <div className="mt-2 space-y-1.5">
                 {attachments.map((file, idx) => (
@@ -177,7 +174,7 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
                     <button
                       type="button"
                       onClick={() => handleRemoveFile(idx)}
-                      className="p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded"
+                      className="p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -206,19 +203,33 @@ export default function CreateSubmissionModal({ isOpen, onClose, onSubmit, users
             </div>
           </div>
 
+          {/* Chân Modal: Nút Hủy, Nút Lưu bản nháp, Nút Tạo và gửi trình */}
           <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-2">
             <button 
               type="button" 
               onClick={onClose} 
-              className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg"
+              className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
             >
               Hủy
             </button>
+
+            {/* NÚT LƯU BẢN NHÁP */}
+            <button 
+              type="button" 
+              onClick={() => handleAction('DRAFT')}
+              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <BookmarkCheck className="w-4 h-4 text-gray-600" />
+              <span>Lưu bản nháp</span>
+            </button>
+
+            {/* NÚT TẠO VÀ GỬI TRÌNH */}
             <button 
               type="submit" 
-              className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs"
+              className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs flex items-center gap-1.5 transition cursor-pointer"
             >
-              Tạo và gửi trình
+              <Send className="w-3.5 h-3.5" />
+              <span>Tạo và gửi trình</span>
             </button>
           </div>
         </form>

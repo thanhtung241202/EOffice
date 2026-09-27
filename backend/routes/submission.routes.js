@@ -19,8 +19,11 @@ router.get('/my-submissions', mockAuth, SubmissionController.getMySubmissions);
 router.get('/processed', mockAuth, SubmissionController.getProcessed);
 router.get('/shared', mockAuth, SubmissionController.getShared);
 router.get('/approved', SubmissionController.getApproved);
+router.get('/search', SubmissionController.search);
+router.get('/drafts', SubmissionController.getDrafts);
+
 // 2. CÁC ROUTE ĐỘNG CÓ THAM SỐ :id 
-//router.post('/:id/share', mockAuth, SubmissionController.share);
+router.post('/:id/publish', SubmissionController.publishDraft);
 router.delete('/:id', mockAuth, SubmissionController.delete);
 router.post('/:id/action', mockAuth, SubmissionController.action);
 router.put('/:id/resubmit', mockAuth, SubmissionController.resubmit);

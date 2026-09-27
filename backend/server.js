@@ -6,13 +6,14 @@ const submissionRoutes = require('./routes/submission.routes');
 const app = express();
 const attachmentRoutes = require('./routes/attachment.route');
 const PORT = process.env.PORT || 5000;
-
+const userRoutes = require('./routes/user.route');
 app.use(cors());
 app.use(express.json());
 // Kiểm tra kết nối cơ sở dữ liệu và trả về trạng thái
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/submissions', submissionRoutes);
 app.use('/api', attachmentRoutes);
+app.use('/api/users', userRoutes);
 app.get('/health', async (req, res) => {
   try {
     const pool = await poolPromise;

@@ -440,6 +440,72 @@ const SubmissionService = {
       data
     };
   },
+
+  async searchSubmissions(query) {
+    if (!query || !query.trim()) {
+      return [];
+    }
+
+    const pool = await poolPromise;
+    const data = await SubmissionModel.search(query.trim(), pool);
+    return data;
+  },
+
+  async getDraftSubmissions(userId) {
+    const pool = await poolPromise;
+    const data = await SubmissionModel.getDraftsByCreator(userId, pool);
+    return { data };
+  },
+
+  // Gửi phê duyệt từ bản nháp
+  async publishDraft(submissionId, userId) {
+    const pool = await poolPromise;
+    const submission = await SubmissionModel.getDetail(submissionId, pool);
+
+    if (!submission) {
+      const err = new Error('Tờ trình không tồn tại.');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (String(submission.created_by_id).toLowerCase() !== String(userId).toLowerCase()) {
+      const err = new Error('Chỉ người tạo mới có quyền gửi tờ trình này.');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    if (submission.status !== 'DRAFT') {
+      const err = new Error('Tờ trình này không ở trạng thái bản nháp.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    try {
+      await SubmissionModel.publishDraft(submissionId, transaction);
+
+      // Gửi thông báo đến Reviewer/Approver bước 1
+      const steps = await ApprovalStepModel.getBySubmissionId(submissionId, transaction);
+      const firstStep = steps.find(s => s.step_order === 1);
+      if (firstStep) {
+        await NotificationModel.create({
+          user_id: firstStep.approver_id,
+          submission_id: submissionId,
+          type: 'PENDING',
+          title: 'Tờ trình mới cần xử lý',
+          content: `Hồ sơ "${submission.title}" đã được gửi và chuyển đến bạn duyệt.`,
+          action_by_id: userId
+        }, transaction);
+      }
+
+      await transaction.commit();
+      return { success: true, message: 'Đã gửi tờ trình vào luồng phê duyệt thành công!' };
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  }
 };
 
 module.exports = SubmissionService;
