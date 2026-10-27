@@ -3,31 +3,41 @@ const { sql } = require('../config/db');
 
 const SubmissionModel = {
   // 1. Tạo mới tờ trình
-  async create(data, transaction) {
-    const request = new sql.Request(transaction);
+  async create(data, poolOrTransaction) {
+    const request = new sql.Request(poolOrTransaction);
+    const status = data.status || 'IN_PROGRESS';
+
+    // Lấy số thứ tự tăng dần trực tiếp từ Sequence
+    const seqResult = await request.query(`SELECT NEXT VALUE FOR dbo.SubmissionCodeSeq AS next_num;`);
+    const documentCode = String(seqResult.recordset[0].next_num);
+
     const result = await request
+      .input('document_code', sql.NVarChar(50), documentCode)
       .input('title', sql.NVarChar(255), data.title)
       .input('content', sql.NVarChar(sql.MAX), data.content)
-      .input('category', sql.NVarChar(100), data.category || 'GENERAL')
-      .input('confidentiality', sql.VarChar(20), data.confidentiality || 'NORMAL')
+      .input('category', sql.NVarChar(100), data.category)
       .input('priority', sql.VarChar(20), data.priority || 'NORMAL')
-      .input('total_steps', sql.Int, data.total_steps)
+      .input('confidentiality', sql.VarChar(20), data.confidentiality || 'NORMAL')
+      .input('status', sql.VarChar(20), status)
+      .input('current_step_order', sql.Int, status === 'DRAFT' ? 0 : 1)
+      .input('total_steps', sql.Int, data.total_steps || (data.steps ? data.steps.length : 1))
       .input('created_by_id', sql.UniqueIdentifier, data.created_by_id)
       .query(`
         INSERT INTO submissions (
-          id, title, content, category, confidentiality, priority,
-          status, current_step_order, total_steps, created_by_id, created_at, updated_at
+          id, document_code, title, content, category, priority, confidentiality,
+          status, current_step_order, total_steps, created_by_id,
+          created_at, updated_at
         )
-        OUTPUT INSERTED.id
+        OUTPUT INSERTED.id, INSERTED.document_code, INSERTED.status
         VALUES (
-          NEWID(), @title, @content, @category, @confidentiality, @priority,
-          'IN_PROGRESS', 1, @total_steps, @created_by_id, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
+          NEWID(), @document_code, @title, @content, @category, @priority, @confidentiality,
+          @status, @current_step_order, @total_steps, @created_by_id,
+          SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
         );
       `);
-    return result.recordset[0].id;
+    return result.recordset[0];
   },
 
-  // 2. Tìm và khóa dòng bằng UPDLOCK, ROWLOCK (chỉ lấy bản ghi chưa bị xóa mềm)
   async findByIdForUpdate(id, transaction) {
     const request = new sql.Request(transaction);
     const result = await request
@@ -40,7 +50,6 @@ const SubmissionModel = {
     return result.recordset[0];
   },
 
-  // 3. Chuyển sang bước tiếp theo
   async incrementStep(id, nextOrder, transaction) {
     const request = new sql.Request(transaction);
     await request
@@ -53,17 +62,17 @@ const SubmissionModel = {
       `);
   },
 
-  // 4. Ký duyệt hoàn tất chu trình
+  // 4. Ký duyệt hoàn tất chu trình (Không làm mất document_code ban đầu)
   async markApproved(id, { docCode, finalApproverId }, transaction) {
     const request = new sql.Request(transaction);
     await request
       .input('id', sql.UniqueIdentifier, id)
-      .input('doc_code', sql.NVarChar(50), docCode)
+      .input('doc_code', sql.NVarChar(50), docCode || null)
       .input('final_approver_id', sql.UniqueIdentifier, finalApproverId)
       .query(`
         UPDATE submissions 
         SET status = 'APPROVED',
-            document_code = @doc_code,
+            document_code = COALESCE(@doc_code, document_code),
             final_approver_id = @final_approver_id,
             completed_at = SYSDATETIMEOFFSET(),
             updated_at = SYSDATETIMEOFFSET()
@@ -104,7 +113,7 @@ const SubmissionModel = {
     return result.recordset[0];
   },
 
-  // 7. Chỉnh sửa và nộp lại tờ trình (giữ nguyên current_step_order để gửi thẳng người trả)
+  // 7. Chỉnh sửa và nộp lại tờ trình
   async resubmit(id, data, transaction) {
     const request = new sql.Request(transaction);
     await request
@@ -128,7 +137,7 @@ const SubmissionModel = {
       `);
   },
 
-  // 8. Lấy danh sách tờ trình do một người tạo (bỏ qua bản ghi đã xóa mềm)
+  // 8. Lấy danh sách tờ trình do một người tạo
   async getByCreator(userId, pool) {
     const request = pool.request();
     const result = await request
@@ -155,7 +164,7 @@ const SubmissionModel = {
     return result.recordset;
   },
 
-  // 9. Lấy danh sách tờ trình đã xử lý (bỏ qua bản ghi đã xóa mềm)
+  // 9. Lấy danh sách tờ trình đã xử lý của người duyệt
   async getProcessedByApprover(userId, pool) {
     const request = pool.request();
     const result = await request
@@ -168,6 +177,7 @@ const SubmissionModel = {
           s.category,
           s.priority,
           s.confidentiality,
+          s.status,
           s.status AS submission_status,
           s.current_step_order,
           s.total_steps,
@@ -205,6 +215,7 @@ const SubmissionModel = {
         WHERE id = @id;
       `);
   },
+
   async findByEmail(email, poolOrTransaction) {
     const request = new sql.Request(poolOrTransaction);
     const result = await request
@@ -213,6 +224,7 @@ const SubmissionModel = {
     return result.recordset[0];
   },
 
+  // 11. Lấy danh sách tờ trình được chia sẻ với người dùng
   async getSharedWithUser(userId, pool) {
     const request = pool.request();
     const result = await request
@@ -239,32 +251,39 @@ const SubmissionModel = {
       `);
     return result.recordset;
   },
-  async getApprovedList(pool) {
+
+  // 12. Lấy danh sách tờ trình đã phê duyệt (Đã bổ sung current_step_order và hỗ trợ phân quyền theo user)
+ async getApprovedList(userId, pool) {
     const request = pool.request();
-    const result = await request.query(`
-      SELECT 
-        s.id,
-        s.document_code,
-        s.title,
-        s.category,
-        s.priority,
-        s.confidentiality,
-        s.status,
-        s.total_steps,
-        s.created_at,
-        s.completed_at,
-        creator.name AS creator_name,
-        creator.department AS creator_department,
-        final_app.name AS final_approver_name
-      FROM submissions s
-      INNER JOIN users creator ON s.created_by_id = creator.id
-      LEFT JOIN users final_app ON s.final_approver_id = final_app.id
-      WHERE s.status = 'APPROVED' AND s.deleted_at IS NULL
-      ORDER BY s.completed_at DESC;
-    `);
+    const result = await request
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .query(`
+        SELECT 
+          s.id,
+          s.document_code,
+          s.title,
+          s.category,
+          s.priority,
+          s.confidentiality,
+          s.status,
+          s.current_step_order,
+          s.total_steps,
+          s.created_at,
+          s.completed_at,
+          creator.name AS creator_name,
+          creator.department AS creator_department,
+          final_app.name AS final_approver_name
+        FROM submissions s
+        INNER JOIN users creator ON s.created_by_id = creator.id
+        LEFT JOIN users final_app ON s.final_approver_id = final_app.id
+        WHERE s.status = 'APPROVED' 
+          AND s.created_by_id = @user_id
+          AND s.deleted_at IS NULL
+        ORDER BY s.completed_at DESC;
+      `);
     return result.recordset;
   },
- async search(keyword, pool) {
+  async search(keyword, pool) {
     const request = pool.request();
     const cleanKeyword = keyword.replace(/^#/, '').trim();
 
@@ -283,15 +302,16 @@ const SubmissionModel = {
         INNER JOIN users u ON s.created_by_id = u.id
         WHERE s.deleted_at IS NULL
           AND (
-            s.title LIKE @keyword 
-            OR s.document_code LIKE @keyword
-            OR CAST(s.id AS NVARCHAR(36)) LIKE @keyword -- Ép kiểu UNIQUEIDENTIFIER sang chuỗi để tìm kiếm mã ID rút gọn
+            s.document_code LIKE @keyword
+            OR s.title LIKE @keyword 
+            OR CAST(s.id AS NVARCHAR(36)) LIKE @keyword
             OR u.name LIKE @keyword
           )
         ORDER BY s.updated_at DESC;
       `);
     return result.recordset;
   },
+
   async getDraftsByCreator(userId, pool) {
     const request = pool.request();
     const result = await request
@@ -311,7 +331,7 @@ const SubmissionModel = {
     return result.recordset;
   },
 
-  // 2. Kích hoạt tờ trình nháp vào luồng phê duyệt (DRAFT -> IN_PROGRESS)
+  // 15. Kích hoạt tờ trình nháp vào luồng duyệt
   async publishDraft(submissionId, poolOrTransaction) {
     const request = new sql.Request(poolOrTransaction);
     await request
@@ -324,11 +344,11 @@ const SubmissionModel = {
           updated_at = SYSDATETIMEOFFSET()
         WHERE id = @id AND status = 'DRAFT';
 
-        -- Chuyển bước 1 sang PENDING để người duyệt bắt đầu xử lý
         UPDATE approval_steps
         SET status = 'PENDING', updated_at = SYSDATETIMEOFFSET()
         WHERE submission_id = @id AND step_order = 1;
       `);
   }
-}
+};
+
 module.exports = SubmissionModel;

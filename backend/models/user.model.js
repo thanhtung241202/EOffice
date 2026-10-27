@@ -1,22 +1,49 @@
 // backend/models/user.model.js
 const { sql } = require('../config/db');
+const bcrypt = require('bcryptjs');
 
 const UserModel = {
+  // 1. Xác thực đăng nhập: Lấy thông tin kèm password_hash, trạng thái và số lần nhập sai
+  async findByEmailForAuth(email, poolOrTransaction) {
+    const request = new sql.Request(poolOrTransaction);
+    const result = await request
+      .input('email', sql.NVarChar(255), email)
+      .query(`
+        SELECT 
+          id, name, email, password_hash, department, job_title, 
+          is_active, is_admin, deleted_at, 
+          ISNULL(failed_attempts, 0) AS failed_attempts
+        FROM users 
+        WHERE email = @email;
+      `);
+    return result.recordset[0];
+  },
+
+  // 2. Tìm người dùng theo email (thông tin hiển thị thông thường)
   async findByEmail(email, poolOrTransaction) {
     const request = new sql.Request(poolOrTransaction);
     const result = await request
       .input('email', sql.VarChar(255), email)
-      .query(`SELECT id, name, email, department, job_title, is_active, is_admin FROM users WHERE email = @email`);
-    return result.recordset[0]; 
+      .query(`
+        SELECT 
+          id, name, email, department, job_title, 
+          is_active, is_admin, 
+          ISNULL(failed_attempts, 0) AS failed_attempts
+        FROM users 
+        WHERE email = @email;
+      `);
+    return result.recordset[0];
   },
 
-  // 2. Lấy danh sách người dùng kèm bộ lọc (tìm kiếm, phòng ban, trạng thái hoạt động / xóa mềm)
+  // 3. Lấy danh sách nhân viên cho Admin có bộ lọc tìm kiếm và trạng thái
   async getAll({ search, department, status }, pool) {
     const request = pool.request();
     let query = `
       SELECT 
         id, name, email, department, job_title, 
-        is_active, is_admin, deleted_at, created_at, updated_at
+        is_active, is_admin, deleted_at, 
+        ISNULL(failed_attempts, 0) AS failed_attempts,
+        created_at, updated_at
       FROM users
       WHERE 1=1
     `;
@@ -45,40 +72,53 @@ const UserModel = {
     return result.recordset;
   },
 
-  // 3. Tìm user theo ID
+  // 4. Tìm người dùng theo ID
   async findById(id, pool) {
     const request = pool.request();
     const result = await request
       .input('id', sql.UniqueIdentifier, id)
-      .query(`SELECT * FROM users WHERE id = @id;`);
+      .query(`
+        SELECT 
+          id, name, email, department, job_title, 
+          is_active, is_admin, deleted_at, 
+          ISNULL(failed_attempts, 0) AS failed_attempts,
+          created_at, updated_at 
+        FROM users 
+        WHERE id = @id;
+      `);
     return result.recordset[0];
   },
 
-  // 4. Tạo người dùng mới
+  // 5. Tạo người dùng mới
   async create(data, pool) {
     const request = pool.request();
+    const rawPassword = data.password || '123456';
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
     const result = await request
       .input('name', sql.NVarChar(255), data.name)
       .input('email', sql.NVarChar(255), data.email)
-      .input('password_hash', sql.VarChar(255), data.password_hash || '$2a$10$defaultHashPlaceholder')
+      .input('password_hash', sql.VarChar(255), hashedPassword)
       .input('department', sql.NVarChar(100), data.department)
       .input('job_title', sql.NVarChar(100), data.job_title)
       .input('is_admin', sql.Bit, data.is_admin ? 1 : 0)
       .query(`
         INSERT INTO users (
-          id, name, email, password_hash, department, job_title, 
-          is_active, is_admin, created_at, updated_at
+          id, name, email, password_hash, department, job_title,
+          is_active, is_admin, failed_attempts, created_at, updated_at
         )
-        OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.department, INSERTED.job_title, INSERTED.is_admin
+        OUTPUT 
+          INSERTED.id, INSERTED.name, INSERTED.email, 
+          INSERTED.department, INSERTED.job_title, INSERTED.is_admin
         VALUES (
-          NEWID(), @name, @email, @password_hash, @department, @job_title, 
-          1, @is_admin, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
+          NEWID(), @name, @email, @password_hash, @department, @job_title,
+          1, @is_admin, 0, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
         );
       `);
     return result.recordset[0];
   },
 
-  // 5. Cập nhật thông tin nhân viên & cơ cấu tổ chức
+  // 6. Cập nhật thông tin nhân viên & cơ cấu tổ chức
   async update(id, data, pool) {
     const request = pool.request();
     await request
@@ -99,7 +139,8 @@ const UserModel = {
       `);
   },
 
-  // 6. Đổi trạng thái hoạt động (Khóa / Mở khóa tài khoản)
+  // 7. Đổi trạng thái hoạt động (Khóa / Mở khóa tài khoản)
+  // Khi mở khóa lại (is_active = 1), reset luôn số lần nhập sai về 0
   async toggleActive(id, pool) {
     const request = pool.request();
     const result = await request
@@ -108,14 +149,46 @@ const UserModel = {
         UPDATE users
         SET 
           is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
+          failed_attempts = CASE WHEN is_active = 1 THEN failed_attempts ELSE 0 END,
           updated_at = SYSDATETIMEOFFSET()
-        OUTPUT INSERTED.is_active
+        OUTPUT INSERTED.is_active, INSERTED.failed_attempts
         WHERE id = @id;
       `);
     return result.recordset[0]?.is_active;
   },
 
-  // 7. Xóa mềm (Soft Delete - cập nhật deleted_at và khóa đăng nhập)
+  // 8. Tăng số lần nhập sai và tự khóa tài khoản nếu đủ 3 lần
+  async recordFailedLogin(email, poolOrTransaction) {
+    const request = new sql.Request(poolOrTransaction);
+    const result = await request
+      .input('email', sql.NVarChar(255), email)
+      .query(`
+        UPDATE users
+        SET 
+          failed_attempts = ISNULL(failed_attempts, 0) + 1,
+          is_active = CASE WHEN ISNULL(failed_attempts, 0) + 1 >= 3 THEN 0 ELSE is_active END,
+          updated_at = SYSDATETIMEOFFSET()
+        OUTPUT INSERTED.failed_attempts, INSERTED.is_active
+        WHERE email = @email AND deleted_at IS NULL;
+      `);
+    return result.recordset[0];
+  },
+
+  // 9. Reset số lần đăng nhập sai về 0 (dùng khi đăng nhập đúng hoặc admin can thiệp)
+  async resetFailedLogin(id, poolOrTransaction) {
+    const request = new sql.Request(poolOrTransaction);
+    await request
+      .input('id', sql.UniqueIdentifier, id)
+      .query(`
+        UPDATE users
+        SET 
+          failed_attempts = 0,
+          updated_at = SYSDATETIMEOFFSET()
+        WHERE id = @id;
+      `);
+  },
+
+  // 10. Xóa mềm (Soft Delete - cập nhật deleted_at và khóa đăng nhập)
   async softDelete(id, pool) {
     const request = pool.request();
     await request
@@ -130,7 +203,7 @@ const UserModel = {
       `);
   },
 
-  // 8. Khôi phục tài khoản đã xóa mềm
+  // 11. Khôi phục tài khoản đã xóa mềm
   async restore(id, pool) {
     const request = pool.request();
     await request
@@ -140,12 +213,35 @@ const UserModel = {
         SET 
           deleted_at = NULL,
           is_active = 1,
+          failed_attempts = 0,
           updated_at = SYSDATETIMEOFFSET()
         WHERE id = @id;
       `);
   },
 
-  // 9. Thống kê cơ cấu tổ chức theo phòng ban & chức danh
+  // 12. Quản trị viên cấp lại mật khẩu (reset luôn failed_attempts và kích hoạt lại tài khoản)
+  async resetPassword(id, newPassword, pool) {
+    const request = pool.request();
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    const result = await request
+      .input('id', sql.UniqueIdentifier, id)
+      .input('password_hash', sql.VarChar(255), hashedPassword)
+      .query(`
+        UPDATE users
+        SET 
+          password_hash = @password_hash,
+          failed_attempts = 0,
+          is_active = 1,
+          updated_at = SYSDATETIMEOFFSET()
+        OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.is_active
+        WHERE id = @id AND deleted_at IS NULL;
+      `);
+
+    return result.recordset[0];
+  },
+
+  // 13. Thống kê cơ cấu tổ chức
   async getOrganizationStructure(pool) {
     const request = pool.request();
     const result = await request.query(`
@@ -160,7 +256,10 @@ const UserModel = {
     `);
 
     const usersResult = await pool.request().query(`
-      SELECT id, name, email, department, job_title, is_active, is_admin, deleted_at
+      SELECT 
+        id, name, email, department, job_title, 
+        is_active, is_admin, deleted_at,
+        ISNULL(failed_attempts, 0) AS failed_attempts
       FROM users
       ORDER BY department, job_title;
     `);

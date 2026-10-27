@@ -2,7 +2,6 @@
 const { sql } = require('../config/db');
 
 const ApprovalStepModel = {
-  // 1. Tạo bước duyệt mới
   async create(data, transaction) {
     const request = new sql.Request(transaction);
 
@@ -61,12 +60,10 @@ const ApprovalStepModel = {
     return result.recordset;
   },
 
-  // Alias tương đương để Service gọi getPendingByApprover không bao giờ bị lỗi
   async getPendingByApprover(userId, pool) {
     return this.getPendingByUser(userId, pool);
   },
 
-  // 3. Khóa dòng bước duyệt hiện tại để xử lý đồng thời
   async findByOrderForUpdate(submissionId, stepOrder, transaction) {
     const request = new sql.Request(transaction);
     const result = await request
@@ -80,7 +77,6 @@ const ApprovalStepModel = {
     return result.recordset[0];
   },
 
-  // 4. Cập nhật trạng thái bước duyệt (PASSED, RETURNED, REJECTED)
   async updateStatus(stepId, status, transaction) {
     const request = new sql.Request(transaction);
     await request
@@ -95,7 +91,6 @@ const ApprovalStepModel = {
       `);
   },
 
-  // 5. Kích hoạt bước tiếp theo thành PENDING
   async activateStep(submissionId, stepOrder, transaction) {
     const request = new sql.Request(transaction);
     await request
@@ -108,7 +103,6 @@ const ApprovalStepModel = {
       `);
   },
 
-  // 6. Lấy toàn bộ chuỗi phê duyệt theo tờ trình
   async getStepsBySubmission(submissionId, pool) {
     const request = pool.request();
     const result = await request
@@ -132,12 +126,10 @@ const ApprovalStepModel = {
     return result.recordset;
   },
 
-  // Alias tương đương để Service gọi getBySubmissionId không bị lỗi
   async getBySubmissionId(submissionId, pool) {
     return this.getStepsBySubmission(submissionId, pool);
   },
 
-  // 7. Reset tất cả các bước về từ đầu khi nộp lại (trường hợp quay về bước 1)
   async resetStepsForResubmit(submissionId, transaction) {
     const request = new sql.Request(transaction);
     await request
@@ -153,7 +145,6 @@ const ApprovalStepModel = {
       `);
   },
 
-  // 8. Kích hoạt lại đích danh bước bị trả về (đẩy thẳng lên người thứ 3)
   async reactivateReturnedStep(submissionId, stepOrder, transaction) {
     const request = new sql.Request(transaction);
     await request

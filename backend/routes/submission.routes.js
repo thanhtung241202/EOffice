@@ -1,32 +1,24 @@
-// routes/submission.routes.js
 const express = require('express');
 const router = express.Router();
 const SubmissionController = require('../controllers/submission.controller');
+const { authenticate } = require('../middlewares/auth.middleware');
 
-const mockAuth = (req, res, next) => {
-  const userId = req.headers['x-user-id'];
-  if (!userId) {
-    return res.status(401).json({ error: 'Vui lòng cung cấp x-user-id qua header.' });
-  }
-  req.user = { id: userId };
-  next();
-};
+router.use(authenticate);
 
-// 1. CÁC ROUTE TĨNH 
-router.post('/', mockAuth, SubmissionController.create);
-router.get('/pending', mockAuth, SubmissionController.getPending);
-router.get('/my-submissions', mockAuth, SubmissionController.getMySubmissions);
-router.get('/processed', mockAuth, SubmissionController.getProcessed);
-router.get('/shared', mockAuth, SubmissionController.getShared);
+router.post('/', SubmissionController.create);
+router.get('/pending', SubmissionController.getPending);
+router.get('/my-submissions', SubmissionController.getMySubmissions);
+router.get('/processed', SubmissionController.getProcessed);
+router.get('/shared', SubmissionController.getShared);
 router.get('/approved', SubmissionController.getApproved);
 router.get('/search', SubmissionController.search);
 router.get('/drafts', SubmissionController.getDrafts);
 
-// 2. CÁC ROUTE ĐỘNG CÓ THAM SỐ :id 
 router.post('/:id/publish', SubmissionController.publishDraft);
-router.delete('/:id', mockAuth, SubmissionController.delete);
-router.post('/:id/action', mockAuth, SubmissionController.action);
-router.put('/:id/resubmit', mockAuth, SubmissionController.resubmit);
-router.get('/:id', mockAuth, SubmissionController.getDetail);
-router.post('/:id/share', mockAuth, SubmissionController.share);
+router.delete('/:id', SubmissionController.delete);
+router.post('/:id/action', SubmissionController.action);
+router.put('/:id/resubmit', SubmissionController.resubmit);
+router.get('/:id', SubmissionController.getDetail);
+router.post('/:id/share', SubmissionController.share);
+
 module.exports = router;

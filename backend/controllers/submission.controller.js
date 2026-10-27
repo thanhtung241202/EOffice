@@ -11,24 +11,38 @@ const SubmissionController = {
         return res.status(400).json({ error: 'Tiêu đề (title) và nội dung (content) không được để trống.' });
       }
 
+      // Ngăn chặn lỗi tràn cột NVARCHAR(255) trong SQL Server (Fix PEN_TEST_05)
+      if (typeof title === 'string' && title.length > 255) {
+        return res.status(400).json({ error: 'Tiêu đề (title) không được vượt quá 255 ký tự.' });
+      }
+
       if (!Array.isArray(steps) || steps.length === 0) {
         return res.status(400).json({ error: 'Quy trình phê duyệt cần ít nhất 1 người duyệt (steps).' });
       }
 
-      const submissionId = await SubmissionService.createSubmission(
+      const result = await SubmissionService.createSubmission(
         { title, content, category, confidentiality, priority, steps },
         userId
       );
 
+      const submissionId = typeof result === 'object' && result !== null
+        ? (result.submission_id || result.id)
+        : result;
+
+      const documentCode = typeof result === 'object' && result !== null
+        ? result.document_code
+        : null;
+
       return res.status(201).json({
         message: 'Khởi tạo tờ trình thành công.',
         submission_id: submissionId,
+        ...(documentCode && { document_code: documentCode })
       });
     } catch (error) {
       console.error('[Create Submission Error]:', error);
-      return res.status(500).json({
-        error: 'Lỗi hệ thống khi tạo tờ trình.',
-        details: error.message,
+      const status = error.statusCode || 500;
+      return res.status(status).json({
+        error: error.message || 'Lỗi hệ thống khi tạo tờ trình.'
       });
     }
   },
@@ -55,23 +69,17 @@ const SubmissionController = {
       const { id: submissionId } = req.params;
       const { action, comment } = req.body;
       const userId = req.user?.id;
-
-      // 1. Kiểm tra tính hợp lệ của action
       const allowedActions = ['APPROVE', 'RETURN', 'REJECT'];
       if (!allowedActions.includes(action)) {
         return res.status(400).json({
           error: 'Hành động không hợp lệ. Chỉ chấp nhận: APPROVE, RETURN, REJECT.'
         });
       }
-
-      // 2. Nếu Trả về hoặc Từ chối, bắt buộc phải có lý do (comment)
       if ((action === 'RETURN' || action === 'REJECT') && (!comment || !comment.trim())) {
         return res.status(400).json({
           error: 'Bắt buộc phải nhập ý kiến / lý do khi chọn Trả về (RETURN) hoặc Từ chối (REJECT).'
         });
       }
-
-      // 3. Gọi Service xử lý giao dịch
       const result = await SubmissionService.executeAction({
         submissionId,
         action,
@@ -189,15 +197,12 @@ const SubmissionController = {
       const { id } = req.params;
       const userId = req.user?.id;
       
-      // Kiểm tra đầu vào
       if (!req.body.recipient_email) {
         return res.status(400).json({ error: 'Vui lòng cung cấp email người nhận.' });
       }
 
-      // Gọi tầng Service để xử lý logic
       const result = await SubmissionService.shareSubmission(id, req.body, userId);
       
-      // Trả về kết quả thành công
       return res.status(200).json({ 
         message: `Đã chia sẻ thành công cho ${result.recipientName}!` 
       });
@@ -222,9 +227,17 @@ const SubmissionController = {
     }
   },
 
-  async getApproved(req, res) {
+async getApproved(req, res) {
     try {
-      const result = await SubmissionService.getApprovedSubmissions();
+      const userId = req.user?.id || req.headers['x-user-id'];
+      const isAdmin = req.user?.is_admin || false;
+
+      if (!userId) {
+        return res.status(401).json({ error: 'Không xác định được danh tính người dùng.' });
+      }
+
+      const result = await SubmissionService.getApprovedSubmissions(userId);
+
       return res.status(200).json(result);
     } catch (error) {
       console.error('[Get Approved Error]:', error);
@@ -245,26 +258,26 @@ const SubmissionController = {
       });
     }
   },
-  async getDrafts(req, res) {
-    try {
-      const userId = req.headers['x-user-id'];
-      const result = await SubmissionService.getDraftSubmissions(userId);
-      return res.status(200).json(result);
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  },
-
-  async publishDraft(req, res) {
-    try {
-      const { id } = req.params;
-      const userId = req.headers['x-user-id'];
-      const result = await SubmissionService.publishDraft(id, userId);
-      return res.status(200).json(result);
-    } catch (err) {
-      return res.status(err.statusCode || 500).json({ error: err.message });
-    }
+async getDrafts(req, res) {
+  try {
+    const userId = req.user.id;
+    const result = await SubmissionService.getDraftSubmissions(userId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
+},
+
+async publishDraft(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id; 
+    const result = await SubmissionService.publishDraft(id, userId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  }
+}
 };
 
 module.exports = SubmissionController;

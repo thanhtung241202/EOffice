@@ -38,15 +38,12 @@ const AttachmentService = {
     const uploadedRecords = [];
 
     for (const file of files) {
-      // Decode tên file tiếng Việt nếu bị lỗi font mã hóa Latin1 từ multer
       const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
       const ext = originalName.split('.').pop();
       const uniqueFileName = `${Date.now()}-${Math.round(Math.random() * 1e4)}.${ext}`;
       
-      // Đường dẫn theo cấu trúc phân quyền: <userId>/<submissionId>/<uniqueFileName>
       const storagePath = `${currentId}/${submissionId}/${uniqueFileName}`;
 
-      // Upload lên Supabase Storage qua Buffer (dùng service role key)
       const { error: uploadError } = await supabase.storage
         .from(BUCKET_NAME)
         .upload(storagePath, file.buffer, {
@@ -58,7 +55,6 @@ const AttachmentService = {
         throw new Error(`Lỗi tải file lên Supabase: ${uploadError.message}`);
       }
 
-      // Lưu metadata vào DB SQL Server
       const record = await AttachmentModel.create({
         submission_id: submissionId,
         file_name: originalName,
@@ -72,7 +68,6 @@ const AttachmentService = {
     return uploadedRecords;
   },
 
-  // 2. Lấy link tải / xem file (Signed URL 60 giây)
   async getDownloadUrl(attachmentId) {
     const pool = await poolPromise;
     const fileRecord = await AttachmentModel.findById(attachmentId, pool);
@@ -84,7 +79,7 @@ const AttachmentService = {
 
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
-      .createSignedUrl(fileRecord.file_path, 60); // Link hết hạn sau 60s
+      .createSignedUrl(fileRecord.file_path, 60);
 
     if (error) {
       throw new Error(`Lỗi tạo đường dẫn tải: ${error.message}`);
@@ -96,7 +91,6 @@ const AttachmentService = {
     };
   },
 
-  // 3. Xóa file đính kèm (Xóa cả trên Supabase và SQL Server)
   async deleteAttachment(attachmentId, userId) {
     const pool = await poolPromise;
     const fileRecord = await AttachmentModel.findById(attachmentId, pool);
@@ -106,7 +100,6 @@ const AttachmentService = {
       throw error;
     }
 
-    // Kiểm tra quyền từ submission
     const submission = await SubmissionModel.getDetail(fileRecord.submission_id, pool);
     if (!submission) {
       const error = new Error('Tờ trình chứa tệp này không tồn tại.');
@@ -129,7 +122,6 @@ const AttachmentService = {
       throw error;
     }
 
-    // Xóa trên Supabase Storage
     const { error: storageError } = await supabase.storage
       .from(BUCKET_NAME)
       .remove([fileRecord.file_path]);
@@ -138,7 +130,6 @@ const AttachmentService = {
       console.warn('Lỗi khi xóa file vật lý trên Supabase:', storageError.message);
     }
 
-    // Xóa record trong SQL Server
     await AttachmentModel.deleteById(attachmentId, pool);
     return { success: true };
   }

@@ -2,7 +2,6 @@
 const { sql } = require('../config/db');
 
 const NotificationModel = {
-  // 1. Ghi thông báo mới (hỗ trợ cả transaction lẫn pool)
   async create({ user_id, submission_id, action_by_id = null, title, content, type }, poolOrTransaction) {
     const request = new sql.Request(poolOrTransaction);
     await request
@@ -22,7 +21,6 @@ const NotificationModel = {
       `);
   },
 
-  // 2. Lấy 20 thông báo gần nhất của user (kèm tên người tác động và mã tờ trình)
   async getByUser(userId, pool) {
     const request = pool.request();
     const result = await request
@@ -50,7 +48,6 @@ const NotificationModel = {
     return result.recordset;
   },
 
-  // 3. Đếm số lượng thông báo chưa đọc (hiển thị số badge đỏ)
   async countUnread(userId, pool) {
     const request = pool.request();
     const result = await request
@@ -66,7 +63,6 @@ const NotificationModel = {
     return result.recordset[0]?.unread_count || 0;
   },
 
-  // 4. Đánh dấu 1 thông báo cụ thể là đã đọc
   async markAsRead(id, userId, pool) {
     const request = pool.request();
     await request
@@ -79,7 +75,6 @@ const NotificationModel = {
       `);
   },
 
-  // 5. Đánh dấu tất cả thông báo của user là đã đọc
   async markAllAsRead(userId, pool) {
     const request = pool.request();
     await request

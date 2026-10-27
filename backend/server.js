@@ -10,6 +10,7 @@ const userRoutes = require('./routes/user.route');
 app.use(cors());
 app.use(express.json());
 // Kiểm tra kết nối cơ sở dữ liệu và trả về trạng thái
+app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/submissions', submissionRoutes);
 app.use('/api', attachmentRoutes);
@@ -30,3 +31,5 @@ poolPromise.then(() => {
     console.log(`[Health Check] http://localhost:${PORT}/health`);
   });
 });
+
+module.exports = app;

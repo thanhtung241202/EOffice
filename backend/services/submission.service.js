@@ -7,75 +7,75 @@ const NotificationModel = require('../models/notification.model');
 const SubmissionViewerModel = require('../models/submissionViewer.model');
 const UserModel = require('../models/user.model');
 const AttachmentModel = require('../models/attachment.model');
+
 const SubmissionService = {
   // 1. Tạo mới tờ trình kèm các bước phê duyệt & thông báo cho Bước 1
-  async createSubmission(payload, userId) {
+  async createSubmission(payload, creatorId) {
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
+    await transaction.begin();
 
     try {
-      await transaction.begin();
+      const isDraft = payload.status === 'DRAFT';
+      const steps = payload.steps && payload.steps.length > 0 ? payload.steps : [];
 
-      const { title, content, category, confidentiality, priority, steps } = payload;
-
-      if (!steps || !Array.isArray(steps) || steps.length === 0) {
-        const error = new Error('Hồ sơ tờ trình bắt buộc phải có ít nhất một bước phê duyệt.');
-        error.statusCode = 400;
-        throw error;
+      if (!isDraft && steps.length === 0) {
+        throw new Error('Vui lòng thiết lập ít nhất 1 người duyệt trong quy trình.');
       }
 
-      // Tạo bản ghi submission
-      const submissionId = await SubmissionModel.create({
-        title,
-        content,
-        category,
-        confidentiality,
-        priority,
+      // 1. Tạo submission
+      const newSub = await SubmissionModel.create({
+        ...payload,
         total_steps: steps.length,
-        created_by_id: userId
+        created_by_id: creatorId
       }, transaction);
 
-      // Tạo các bước duyệt
+      const submissionId = newSub.id;
+
+      // 2. Tạo các bước duyệt theo danh sách người dùng đã chọn
       for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
         const stepOrder = i + 1;
-        const initialStatus = stepOrder === 1 ? 'PENDING' : 'WAITING';
+        const stepData = steps[i];
+        const stepStatus = (!isDraft && stepOrder === 1) ? 'PENDING' : 'WAITING';
 
         await ApprovalStepModel.create({
           submission_id: submissionId,
-          approver_id: step.approver_id,
           step_order: stepOrder,
-          step_role: step.step_role || 'APPROVER',
-          status: initialStatus
+          approver_id: stepData.approver_id,
+          step_role: stepData.step_role || 'APPROVER',
+          status: stepStatus
         }, transaction);
       }
 
-      // TỰ ĐỘNG THÔNG BÁO: Báo cho người duyệt bước 1 có hồ sơ mới đến
-      await NotificationModel.create({
-        user_id: steps[0].approver_id,
-        submission_id: submissionId,
-        action_by_id: userId,
-        title: 'Hồ sơ mới cần xử lý',
-        content: `Đồng chí vừa được phân công xử lý tờ trình "${title}".`,
-        type: 'ASSIGNED'
-      }, transaction);
+      // 3. Nếu gửi duyệt ngay, gửi thông báo cho approver bước 1
+      if (!isDraft && steps.length > 0) {
+        await NotificationModel.create({
+          user_id: steps[0].approver_id,
+          submission_id: submissionId,
+          type: 'PENDING',
+          title: `Tờ trình cần xử lý [#${newSub.document_code}]`,
+          content: `Bạn nhận được tờ trình "${payload.title}" cần xử lý.`,
+          action_by_id: creatorId
+        }, transaction);
+      }
 
       await transaction.commit();
-      return { submission_id: submissionId };
+      return { 
+        submission_id: submissionId, 
+        document_code: newSub.document_code,
+        message: isDraft ? 'Đã lưu bản nháp!' : 'Đã khởi tạo và gửi trình thành công!' 
+      };
     } catch (err) {
       await transaction.rollback();
       throw err;
     }
   },
 
-  // 2. Lấy danh sách hồ sơ cần xử lý của Approver hiện tại
+  // 2. Lấy danh sách hồ sơ cần xử lý của Approver hiện tại (Trả về mảng thuần để Controller bọc chuẩn)
   async getPendingList(userId) {
     const pool = await poolPromise;
     const data = await ApprovalStepModel.getPendingByApprover(userId, pool);
-    return {
-      total: data.length,
-      data
-    };
+    return data;
   },
 
   // 3. Lấy danh sách hồ sơ do chính user lập
@@ -100,30 +100,28 @@ const SubmissionService = {
 
   // 5. Lấy chi tiết hồ sơ, chuỗi duyệt và lịch sử ý kiến
   async getSubmissionDetail(submissionId) {
-  const pool = await poolPromise;
+    const pool = await poolPromise;
 
-  const submission = await SubmissionModel.getDetail(submissionId, pool);
-  if (!submission) {
-    const error = new Error('Tờ trình không tồn tại hoặc đã bị xoá.');
-    error.statusCode = 404;
-    throw error;
-  }
+    const submission = await SubmissionModel.getDetail(submissionId, pool);
+    if (!submission) {
+      const error = new Error('Tờ trình không tồn tại hoặc đã bị xoá.');
+      error.statusCode = 404;
+      throw error;
+    }
 
-  const approval_steps = await ApprovalStepModel.getBySubmissionId(submissionId, pool);
-  const comments = await CommentModel.getBySubmissionId(submissionId, pool);
-  
-  // Lấy thêm danh sách file đính kèm
-  const attachments = await AttachmentModel.getBySubmissionId(submissionId, pool);
+    const approval_steps = await ApprovalStepModel.getBySubmissionId(submissionId, pool);
+    const comments = await CommentModel.getBySubmissionId(submissionId, pool);
+    const attachments = await AttachmentModel.getBySubmissionId(submissionId, pool);
 
-  return {
-    submission,
-    approval_steps,
-    comments,
-    attachments // Trả về kèm chi tiết
-  };
-},
+    return {
+      submission,
+      approval_steps,
+      comments,
+      attachments
+    };
+  },
 
-  // 6. Xử lý hành động phê duyệt (APPROVE / RETURN / REJECT) & Bắn thông báo tương ứng
+  // 6. Xử lý hành động phê duyệt (APPROVE / RETURN / REJECT)
   async executeAction({ submissionId, action, comment, userId }) {
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
@@ -172,24 +170,22 @@ const SubmissionService = {
         throw error;
       }
 
-      // Phân loại xử lý theo hành động
+      // Xử lý các hành động
       if (action === 'APPROVE') {
         await ApprovalStepModel.updateStatus(currentStep.id, 'PASSED', transaction);
 
         if (submission.current_step_order < submission.total_steps) {
-          // Chưa phải bước cuối: Chuyển sang bước kế tiếp
+          // Chưa phải bước cuối: Chuyển sang bước tiếp theo
           const nextOrder = submission.current_step_order + 1;
           await SubmissionModel.incrementStep(submissionId, nextOrder, transaction);
           await ApprovalStepModel.activateStep(submissionId, nextOrder, transaction);
 
-          // Lấy thông tin người duyệt bước tiếp theo
           const nextStep = await ApprovalStepModel.findByOrderForUpdate(
             submissionId,
             nextOrder,
             transaction
           );
 
-          // TỰ ĐỘNG THÔNG BÁO: Báo cho người bước tiếp theo
           await NotificationModel.create({
             user_id: nextStep.approver_id,
             submission_id: submissionId,
@@ -199,20 +195,22 @@ const SubmissionService = {
             type: 'ASSIGNED'
           }, transaction);
         } else {
-          // Là bước duyệt cuối cùng: Ký duyệt hoàn tất và cấp mã văn bản
-          const generatedDocCode = `TT-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+          // Bước cuối cùng: Phê duyệt hoàn tất, đồng bộ mã document_code
+          const finalDocCode = submissionDetail.document_code 
+            ? `TT-${new Date().getFullYear()}-${submissionDetail.document_code.padStart(4, '0')}`
+            : `TT-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+
           await SubmissionModel.markApproved(submissionId, {
-            docCode: generatedDocCode,
+            docCode: finalDocCode,
             finalApproverId: userId
           }, transaction);
 
-          // TỰ ĐỘNG THÔNG BÁO: Báo cho Người tạo biết hồ sơ đã được duyệt hoàn tất
           await NotificationModel.create({
             user_id: submissionDetail.created_by_id,
             submission_id: submissionId,
             action_by_id: userId,
             title: 'Tờ trình đã được phê duyệt',
-            content: `Tờ trình "${submissionDetail.title}" đã hoàn tất phê duyệt với số hiệu [${generatedDocCode}].`,
+            content: `Tờ trình "${submissionDetail.title}" đã hoàn tất phê duyệt với số hiệu [${finalDocCode}].`,
             type: 'APPROVED'
           }, transaction);
         }
@@ -220,7 +218,6 @@ const SubmissionService = {
         await ApprovalStepModel.updateStatus(currentStep.id, 'RETURNED', transaction);
         await SubmissionModel.updateStatus(submissionId, 'RETURNED', transaction);
 
-        // TỰ ĐỘNG THÔNG BÁO: Báo cho Người tạo biết hồ sơ bị trả về
         await NotificationModel.create({
           user_id: submissionDetail.created_by_id,
           submission_id: submissionId,
@@ -233,7 +230,6 @@ const SubmissionService = {
         await ApprovalStepModel.updateStatus(currentStep.id, 'REJECTED', transaction);
         await SubmissionModel.updateStatus(submissionId, 'REJECTED', transaction);
 
-        // TỰ ĐỘNG THÔNG BÁO: Báo cho Người tạo biết hồ sơ bị từ chối
         await NotificationModel.create({
           user_id: submissionDetail.created_by_id,
           submission_id: submissionId,
@@ -244,7 +240,7 @@ const SubmissionService = {
         }, transaction);
       }
 
-      // Lưu ý kiến / lý do thao tác
+      // Ghi nhận bình luận/lý do
       if (comment && comment.trim()) {
         await CommentModel.create({
           submission_id: submissionId,
@@ -261,7 +257,7 @@ const SubmissionService = {
     }
   },
 
-  // 7. Chỉnh sửa và nộp lại tờ trình (Gửi thẳng lại người thứ 3 đã trả về & Báo notification)
+  // 7. Chỉnh sửa và nộp lại tờ trình
   async resubmitSubmission(submissionId, payload, userId) {
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
@@ -269,7 +265,6 @@ const SubmissionService = {
     try {
       await transaction.begin();
 
-      // Khóa và kiểm tra tờ trình
       const submission = await SubmissionModel.findByIdForUpdate(submissionId, transaction);
       if (!submission) {
         const error = new Error('Tờ trình không tồn tại hoặc đã bị xoá.');
@@ -283,14 +278,12 @@ const SubmissionService = {
         throw error;
       }
 
-      // Kiểm tra thẩm quyền người tạo
       if (submission.created_by_id.toLowerCase() !== userId.toLowerCase()) {
         const error = new Error('Bạn không phải là người tạo hồ sơ này nên không có quyền chỉnh sửa.');
         error.statusCode = 403;
         throw error;
       }
 
-      // Cập nhật thông tin tờ trình (giữ nguyên current_step_order, đưa status về IN_PROGRESS)
       await SubmissionModel.resubmit(submissionId, {
         title: payload.title,
         content: payload.content,
@@ -299,28 +292,24 @@ const SubmissionService = {
         priority: payload.priority
       }, transaction);
 
-      // Kích hoạt lại đúng bước đang bị RETURNED
       await ApprovalStepModel.reactivateReturnedStep(
         submissionId,
         submission.current_step_order,
         transaction
       );
 
-      // Bắt buộc ghi nhận nội dung giải trình của người tạo
       await CommentModel.create({
         submission_id: submissionId,
         user_id: userId,
         content: `[Nộp lại hồ sơ cho Người duyệt bước ${submission.current_step_order}]: ${payload.resubmit_comment}`
       }, transaction);
 
-      // Lấy approver của bước đang chờ duyệt lại để gửi thông báo
       const targetStep = await ApprovalStepModel.findByOrderForUpdate(
         submissionId,
         submission.current_step_order,
         transaction
       );
 
-      // TỰ ĐỘNG THÔNG BÁO: Báo cho Người duyệt bước đó biết hồ sơ đã được nộp lại
       await NotificationModel.create({
         user_id: targetStep.approver_id,
         submission_id: submissionId,
@@ -341,38 +330,35 @@ const SubmissionService = {
   // 8. Xóa mềm tờ trình (Soft Delete)
   async deleteSubmission(submissionId, userId) {
     const pool = await poolPromise;
-
     const submission = await SubmissionModel.getDetail(submissionId, pool);
+
     if (!submission) {
-      const error = new Error('Tờ trình không tồn tại hoặc đã bị xoá trước đó.');
+      const error = new Error('Tờ trình không tồn tại.');
       error.statusCode = 404;
       throw error;
     }
 
-    if (submission.created_by_id.toLowerCase() !== userId.toLowerCase()) {
-      const error = new Error('Bạn không có quyền xoá tờ trình của người khác.');
+    if (String(submission.created_by_id).toLowerCase() !== String(userId).toLowerCase()) {
+      const error = new Error('Bạn không phải người tạo tờ trình này.');
       error.statusCode = 403;
       throw error;
     }
 
-    // Không cho phép xoá tờ trình đã hoàn tất phê duyệt hoặc đã có kết luận từ chối
-    if (['APPROVED', 'REJECTED'].includes(submission.status)) {
-      const error = new Error(`Không thể xoá hồ sơ đã ở trạng thái [${submission.status}].`);
-      error.statusCode = 400;
-      throw error;
-    }
+    const isDeletable = 
+      ['DRAFT', 'RETURNED', 'REJECTED'].includes(submission.status) ||
+      (submission.status === 'IN_PROGRESS' && submission.current_step_order === 1);
 
-    // Nếu đang trong chu trình nhưng đã duyệt qua bước 1 thì không cho tự ý xoá
-    if (submission.status === 'IN_PROGRESS' && submission.current_step_order > 1) {
-      const error = new Error('Hồ sơ đã được các cấp trước xem xét và phê duyệt, không thể tự ý xoá.');
+    if (!isDeletable) {
+      const error = new Error('Không thể xoá tờ trình đang trong tiến trình phê duyệt các bước sau hoặc đã hoàn tất.');
       error.statusCode = 400;
       throw error;
     }
 
     await SubmissionModel.softDelete(submissionId, userId, pool);
-    return { success: true };
+    return { success: true, message: 'Đã xoá tờ trình thành công.' };
   },
 
+  // 9. Chia sẻ tờ trình
   async shareSubmission(submissionId, payload, userId) {
     const { recipient_email, message } = payload;
     const pool = await poolPromise;
@@ -381,7 +367,6 @@ const SubmissionService = {
     try {
       await transaction.begin();
 
-      // 1. Tìm user đích bằng email qua Model
       const recipient = await UserModel.findByEmail(recipient_email, transaction);
       if (!recipient) {
         const error = new Error('Không tìm thấy tài khoản nào sử dụng Email này trong hệ thống.');
@@ -395,18 +380,14 @@ const SubmissionService = {
         throw error;
       }
 
-      // 2. Lấy chi tiết tờ trình qua Model (Sử dụng hàm getDetail đã có sẵn)
       const submissionDetail = await SubmissionModel.getDetail(submissionId, transaction);
       const submissionTitle = submissionDetail?.title || 'Tờ trình';
 
-      // 3. Kiểm tra và lưu quyền xem qua Model
       const isAlreadyShared = await SubmissionViewerModel.checkExists(submissionId, recipient.id, transaction);
-      
       if (!isAlreadyShared) {
         await SubmissionViewerModel.addViewer(submissionId, recipient.id, userId, transaction);
       }
 
-      // 4. Bắn thông báo qua Model
       await NotificationModel.create({
         user_id: recipient.id,
         submission_id: submissionId,
@@ -423,6 +404,8 @@ const SubmissionService = {
       throw err;
     }
   },
+
+  // 10. Danh sách được chia sẻ
   async getSharedSubmissions(userId) {
     const pool = await poolPromise;
     const data = await SubmissionModel.getSharedWithUser(userId, pool);
@@ -432,32 +415,34 @@ const SubmissionService = {
     };
   },
 
-  async getApprovedSubmissions() {
+  async getApprovedSubmissions(userId = null) {
     const pool = await poolPromise;
-    const data = await SubmissionModel.getApprovedList(pool);
+    // Truyền thẳng userId và pool vào Model
+    const data = await SubmissionModel.getApprovedList(userId, pool);
     return {
       total: data.length,
       data
     };
   },
 
+  // 12. Tìm kiếm
   async searchSubmissions(query) {
     if (!query || !query.trim()) {
       return [];
     }
-
     const pool = await poolPromise;
     const data = await SubmissionModel.search(query.trim(), pool);
     return data;
   },
 
+  // 13. Danh sách nháp
   async getDraftSubmissions(userId) {
     const pool = await poolPromise;
     const data = await SubmissionModel.getDraftsByCreator(userId, pool);
     return { data };
   },
 
-  // Gửi phê duyệt từ bản nháp
+  // 14. Xuất bản từ bản nháp
   async publishDraft(submissionId, userId) {
     const pool = await poolPromise;
     const submission = await SubmissionModel.getDetail(submissionId, pool);
@@ -485,7 +470,6 @@ const SubmissionService = {
     try {
       await SubmissionModel.publishDraft(submissionId, transaction);
 
-      // Gửi thông báo đến Reviewer/Approver bước 1
       const steps = await ApprovalStepModel.getBySubmissionId(submissionId, transaction);
       const firstStep = steps.find(s => s.step_order === 1);
       if (firstStep) {

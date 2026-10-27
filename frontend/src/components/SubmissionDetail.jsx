@@ -1,24 +1,63 @@
+// src/components/SubmissionDetail.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ArrowLeft, CheckCircle2, Clock, 
-  Send, RotateCcw, XCircle, UploadCloud, 
-  Settings, MessageSquare, AlertTriangle, Edit3, Trash2,
-  Share2, X, Paperclip, FileText, Download, Loader2
-} from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 
-export default function SubmissionDetail({ 
-  detailData, 
-  onBack, 
-  onApprove, 
-  onReturn, 
-  onReject, 
+const CATEGORIES = [
+  'Tuyển dụng - Nhân sự - Đào tạo',
+  'Đề xuất mua sắm',
+  'Giải trình công việc',
+  'Tài chính - Kế toán',
+  'Kỹ thuật - CNTT'
+];
+
+function SubmissionStatusBadge({ status }) {
+  if (status === 'APPROVED') {
+    return (
+      <span className="text-[11px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 border border-emerald-300 whitespace-nowrap">
+        Đã phê duyệt
+      </span>
+    );
+  }
+  if (status === 'IN_PROGRESS') {
+    return (
+      <span className="text-[11px] font-medium text-amber-800 bg-amber-50 px-2 py-0.5 border border-amber-300 whitespace-nowrap">
+        Đang xử lý
+      </span>
+    );
+  }
+  if (status === 'RETURNED') {
+    return (
+      <span className="text-[11px] font-medium text-red-800 bg-red-50 px-2 py-0.5 border border-red-300 whitespace-nowrap">
+        Đã trả về
+      </span>
+    );
+  }
+  if (status === 'REJECTED') {
+    return (
+      <span className="text-[11px] font-medium text-red-900 bg-red-100 px-2 py-0.5 border border-red-300 whitespace-nowrap">
+        Từ chối
+      </span>
+    );
+  }
+  return (
+    <span className="text-[11px] font-medium text-stone-600 bg-stone-50 px-2 py-0.5 border border-stone-200 whitespace-nowrap">
+      Bản nháp
+    </span>
+  );
+}
+
+export default function SubmissionDetail({
+  detailData,
+  onBack,
+  onApprove,
+  onReturn,
+  onReject,
   onResubmit,
   onDelete,
-  onShareEmail, 
-  currentUserId 
+  onShareEmail,
+  currentUserId
 }) {
   const { submission, approval_steps = [], comments = [], attachments = [] } = detailData || {};
-
 
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
@@ -27,17 +66,13 @@ export default function SubmissionDetail({
   const [editConfidentiality, setEditConfidentiality] = useState('NORMAL');
   const [resubmitComment, setResubmitComment] = useState('');
 
-
   const [newAttachments, setNewAttachments] = useState([]);
   const fileInputRef = useRef(null);
-
-  // Trạng thái tải file (downloading)
   const [downloadingId, setDownloadingId] = useState(null);
 
   const [approverComment, setApproverComment] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
 
-  // State cho Modal Chia sẻ
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
   const [shareMessage, setShareMessage] = useState('');
@@ -46,7 +81,7 @@ export default function SubmissionDetail({
     if (submission) {
       setEditTitle(submission.title || '');
       setEditContent(submission.content || '');
-      setEditCategory(submission.category || 'Tuyển dụng - Nhân sự - Đào tạo');
+      setEditCategory(submission.category || CATEGORIES[0]);
       setEditPriority(submission.priority || 'NORMAL');
       setEditConfidentiality(submission.confidentiality || 'NORMAL');
       setResubmitComment('');
@@ -54,26 +89,21 @@ export default function SubmissionDetail({
     }
   }, [submission]);
 
-  // Kiểm tra quyền hạn của người xem
   const isCreator = submission?.created_by_id?.toLowerCase() === currentUserId?.toLowerCase();
   const isReturned = submission?.status === 'RETURNED';
+  const isRejected = submission?.status === 'REJECTED';
+  const isDraft = submission?.status === 'DRAFT';
   const canEditAndResubmit = isCreator && isReturned;
-
-  // Điều kiện được phép xoá
-  const canDelete = isCreator && (
-    isReturned || 
-    (submission?.status === 'IN_PROGRESS' && submission?.current_step_order === 1)
-  );
+  const canDelete = isCreator && (isDraft || isReturned || isRejected);
 
   const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
 
-  const activeStep = approval_steps.find(s => s.step_order === submission?.current_step_order);
-  const isMyTurnToApprove = 
+  const activeStep = approval_steps.find((s) => s.step_order === submission?.current_step_order);
+  const isMyTurnToApprove =
     submission?.status === 'IN_PROGRESS' &&
-    activeStep?.approver_id?.toLowerCase() === currentUserId?.toLowerCase() && 
+    activeStep?.approver_id?.toLowerCase() === currentUserId?.toLowerCase() &&
     activeStep?.status === 'PENDING';
 
-  // Format kích thước file
   const formatFileSize = (bytes) => {
     if (!bytes) return '0 B';
     if (bytes < 1024) return bytes + ' B';
@@ -81,28 +111,20 @@ export default function SubmissionDetail({
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-const handleDownloadAttachment = async (attachmentId) => {
+  const handleDownloadAttachment = async (attachmentId) => {
     try {
       setDownloadingId(attachmentId);
-      
-
       const res = await fetch(`http://localhost:5000/api/attachments/${attachmentId}/download`, {
-        headers: {
-          'x-user-id': currentUserId
-        }
+        headers: { 'x-user-id': currentUserId }
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Lỗi tải file');
-      
-      // Mở đường dẫn signed URL của Supabase trong tab mới
+      if (!res.ok) throw new Error(data.error || 'Lỗi khi tải tập tin.');
       if (data.download_url) {
         window.open(data.download_url, '_blank');
       } else {
         alert('Không tìm thấy đường dẫn tải về.');
       }
     } catch (err) {
-      console.error('[Download Attachment Error]:', err);
       alert(err.message);
     } finally {
       setDownloadingId(null);
@@ -127,7 +149,7 @@ const handleDownloadAttachment = async (attachmentId) => {
       return;
     }
     if (!resubmitComment.trim()) {
-      alert('Vui lòng nhập nội dung giải trình / phản hồi yêu cầu chỉnh sửa trước khi gửi trình lại.');
+      alert('Vui lòng nhập nội dung giải trình trước khi gửi trình lại.');
       return;
     }
     setSubmittingAction(true);
@@ -138,14 +160,21 @@ const handleDownloadAttachment = async (attachmentId) => {
       priority: editPriority,
       confidentiality: editConfidentiality,
       resubmit_comment: resubmitComment.trim(),
-      new_attachments: newAttachments // File mới đính kèm thêm
+      new_attachments: newAttachments
     });
     setSubmittingAction(false);
   };
 
   const handleDeleteClick = async () => {
-    const isConfirmed = window.confirm('Bạn có chắc chắn muốn xoá tờ trình này không?');
-    if (!isConfirmed) return;
+    let confirmMessage = 'Xác nhận xóa bản nháp tờ trình này?';
+    if (isRejected) {
+      confirmMessage = `Tờ trình đã bị cấp trên từ chối.\nÝ kiến: "${lastComment?.content || 'Không có ghi chú'}"\n\nXác nhận xóa hồ sơ khỏi danh sách?`;
+    } else if (isReturned) {
+      confirmMessage = 'Tờ trình đang ở trạng thái bị trả về. Nếu xóa, hồ sơ sẽ không thể phục hồi để nộp lại. Xác nhận xóa?';
+    }
+
+    if (!window.confirm(confirmMessage)) return;
+
     setSubmittingAction(true);
     await onDelete();
     setSubmittingAction(false);
@@ -166,7 +195,10 @@ const handleDownloadAttachment = async (attachmentId) => {
 
   const handleShareSubmit = (e) => {
     e.preventDefault();
-    if (!shareEmail.trim()) return alert('Vui lòng nhập email người nhận.');
+    if (!shareEmail.trim()) {
+      alert('Vui lòng nhập email người nhận.');
+      return;
+    }
     onShareEmail({ recipientEmail: shareEmail, message: shareMessage });
     setIsShareModalOpen(false);
     setShareEmail('');
@@ -174,479 +206,514 @@ const handleDownloadAttachment = async (attachmentId) => {
   };
 
   return (
-    <div className="bg-gray-50 min-h-[calc(100vh-64px)] p-6 relative">
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 mb-4 border-b border-gray-200">
-        <button 
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* THANH THAO TÁC TRÊN ĐẦU */}
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-stone-200">
+        <button
+          type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 hover:text-stone-900 bg-white border border-stone-300 px-3 py-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-900"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <ArrowLeft size={14} />
           <span>Quay lại</span>
         </button>
 
         <div className="flex items-center gap-2">
           {canDelete && (
-            <button 
+            <button
+              type="button"
               onClick={handleDeleteClick}
               disabled={submittingAction}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 disabled:opacity-50 rounded-md transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-red-700 hover:text-red-800 bg-white border border-red-300 hover:bg-red-50 disabled:opacity-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-700"
             >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-              <span>Xoá tờ trình</span>
+              {isRejected ? 'Xác nhận xóa hồ sơ bị từ chối' : 'Xóa tờ trình'}
             </button>
           )}
 
           {canEditAndResubmit && (
-            <button 
+            <button
+              type="button"
               onClick={handleResubmit}
               disabled={submittingAction}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:bg-red-400 rounded-md transition-colors shadow-xs"
+              className="px-4 py-1.5 text-xs font-medium text-white bg-red-700 hover:bg-red-800 active:bg-red-900 disabled:bg-stone-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2"
             >
-              <Send className="w-3.5 h-3.5" />
-              <span>{submittingAction ? 'Đang gửi...' : 'Lưu & Gửi trình lại'}</span>
+              {submittingAction ? 'Đang gửi...' : 'Lưu & Gửi trình lại'}
             </button>
           )}
 
           {isMyTurnToApprove && (
             <>
-              <button 
+              <button
+                type="button"
                 onClick={() => handleApproverAction('APPROVE')}
                 disabled={submittingAction}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 rounded-md transition-colors shadow-xs"
+                className="px-3.5 py-1.5 text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 disabled:bg-stone-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
               >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Phê duyệt</span>
+                Phê duyệt
               </button>
-              <button 
+              <button
+                type="button"
                 onClick={() => handleApproverAction('RETURN')}
                 disabled={submittingAction}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors"
+                className="px-3.5 py-1.5 text-xs font-medium text-red-700 hover:text-red-800 bg-white border border-red-300 hover:bg-red-50 disabled:opacity-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-700"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Trả về</span>
+                Trả về
               </button>
-              <button 
+              <button
+                type="button"
                 onClick={() => handleApproverAction('REJECT')}
                 disabled={submittingAction}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-md transition-colors"
+                className="px-3.5 py-1.5 text-xs font-medium text-red-900 hover:text-white hover:bg-red-800 bg-white border border-red-400 disabled:opacity-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-700"
               >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Từ chối</span>
+                Từ chối
               </button>
             </>
           )}
 
-          <button 
+          <button
+            type="button"
             onClick={() => setIsShareModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-stone-700 hover:text-stone-900 bg-white border border-stone-300 hover:bg-stone-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-900"
           >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Chia sẻ</span>
-          </button>
-
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors">
-            <UploadCloud className="w-3.5 h-3.5" />
-            <span>Đẩy lên dataroom</span>
+            Chia sẻ
           </button>
         </div>
-      </div>
+      </header>
 
-      {isReturned && (
-        <div className="mb-4 bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3 text-amber-900 shadow-xs">
-          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div className="flex-1 text-xs">
-            <div className="font-bold text-amber-950 flex items-center gap-2 mb-1">
-              <span>HỒ SƠ ĐÃ BỊ TRẢ VỀ YÊU CẦU CHỈNH SỬA</span>
-              {canEditAndResubmit && (
-                <span className="bg-amber-200 text-amber-900 font-semibold px-2 py-0.5 rounded text-[10px]">
-                  Bạn có quyền chỉnh sửa & nộp lại
-                </span>
-              )}
+      {/* GRID CHÍNH: CHI TIẾT (8 CỘT) - LUỒNG DUYỆT (4 CỘT) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* CỘT TRÁI: CHI TIẾT TỜ TRÌNH (RỘNG RÃI, CHIẾM 8 PHẦN) */}
+        <article className="lg:col-span-8 bg-white border border-stone-200 divide-y divide-stone-200">
+          <header className="p-6 space-y-4">
+            <div className="flex items-center gap-2.5">
+              <span className="text-red-700 font-semibold font-mono text-base">
+                {submission?.document_code
+                  ? `#${submission.document_code}`
+                  : `#${String(submission?.id || '').slice(0, 8)}`}
+              </span>
+              <SubmissionStatusBadge status={submission?.status} />
             </div>
-            {lastComment && (
-              <p className="mt-1 text-amber-900 font-medium">
-                Ý kiến từ <span className="font-bold">{lastComment.author_name}</span>: 
-                <span className="italic"> "{lastComment.content}"</span>
-              </p>
-            )}
-          </div>
-        </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-red-600 font-bold text-base font-mono">
-                  {submission?.document_code || `#${String(submission?.id || '').slice(0, 8)}`}
-                </span>
-                {submission?.status === 'APPROVED' && (
-                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded text-xs font-medium">Đã phê duyệt</span>
-                )}
-                {submission?.status === 'IN_PROGRESS' && (
-                  <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded text-xs font-medium">Đang xử lý</span>
-                )}
-                {submission?.status === 'RETURNED' && (
-                  <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded text-xs font-medium">Đã trả về</span>
-                )}
-                {submission?.status === 'REJECTED' && (
-                  <span className="bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-0.5 rounded text-xs font-medium">Từ chối</span>
+            {canEditAndResubmit ? (
+              <div className="space-y-1">
+                <label htmlFor="editTitleInput" className="block text-xs font-medium text-stone-700">
+                  Chỉnh sửa tiêu đề *
+                </label>
+                <input
+                  id="editTitleInput"
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full text-sm font-medium text-stone-900 p-2.5 border border-stone-300 bg-white focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700 transition-colors duration-150"
+                />
+              </div>
+            ) : (
+              <h1 className="text-base font-semibold text-stone-900 leading-snug">
+                {submission?.title}
+              </h1>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div className="space-y-1">
+                <label htmlFor="editCategorySelect" className="block text-xs font-medium text-stone-600">
+                  Loại tờ trình
+                </label>
+                {canEditAndResubmit ? (
+                  <select
+                    id="editCategorySelect"
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-stone-300 bg-white text-stone-900 focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700"
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="text-xs px-3 py-2 bg-stone-50 border border-stone-200 text-stone-800">
+                    {submission?.category || CATEGORIES[0]}
+                  </div>
                 )}
               </div>
 
-              {canEditAndResubmit ? (
-                <div>
-                  <label className="block text-[11px] font-bold text-red-600 mb-1 flex items-center gap-1">
-                    <Edit3 className="w-3.5 h-3.5" />
-                    Chỉnh sửa Tiêu đề:
-                  </label>
-                  <input 
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full text-sm font-bold text-gray-900 p-2.5 border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 bg-red-50/20"
-                  />
-                </div>
-              ) : (
-                <h2 className="text-base font-bold text-gray-900 leading-snug">
-                  {submission?.title}
-                </h2>
-              )}
+              <div className="space-y-1">
+                <label htmlFor="editPrioritySelect" className="block text-xs font-medium text-stone-600">
+                  Độ ưu tiên
+                </label>
+                {canEditAndResubmit ? (
+                  <select
+                    id="editPrioritySelect"
+                    value={editPriority}
+                    onChange={(e) => setEditPriority(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-stone-300 bg-white text-stone-900 focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700"
+                  >
+                    <option value="NORMAL">Bình thường</option>
+                    <option value="URGENT">Khẩn cấp</option>
+                  </select>
+                ) : (
+                  <div className="text-xs px-3 py-2 bg-stone-50 border border-stone-200 text-stone-800">
+                    {submission?.priority === 'URGENT' ? 'Khẩn cấp' : 'Bình thường'}
+                  </div>
+                )}
+              </div>
             </div>
-            <button className="p-1.5 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-100">
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
+          </header>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Loại tờ trình *</label>
-              {canEditAndResubmit ? (
-                <select 
-                  value={editCategory}
-                  onChange={(e) => setEditCategory(e.target.value)}
-                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
-                >
-                  <option>Tuyển dụng - Nhân sự - Đào tạo</option>
-                  <option>Đề xuất mua sắm</option>
-                  <option>Giải trình công việc</option>
-                </select>
-              ) : (
-                <input 
-                  disabled 
-                  value={submission?.category || 'Tuyển dụng - Nhân sự - Đào tạo'} 
-                  className="w-full text-xs px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700" 
-                />
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Độ ưu tiên</label>
-              {canEditAndResubmit ? (
-                <select 
-                  value={editPriority}
-                  onChange={(e) => setEditPriority(e.target.value)}
-                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
-                >
-                  <option value="NORMAL">Bình thường</option>
-                  <option value="URGENT">Khẩn cấp</option>
-                </select>
-              ) : (
-                <input 
-                  disabled 
-                  value={submission?.priority === 'URGENT' ? 'Khẩn cấp' : 'Bình thường'} 
-                  className="w-full text-xs px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700" 
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="pt-2 border-t border-gray-100">
-            <label className="block text-xs font-bold text-gray-700 mb-1.5">Nội dung tờ trình *</label>
+          <section aria-label="Nội dung tờ trình" className="p-6 space-y-2">
+            <span className="block text-xs font-medium text-stone-700">
+              Nội dung văn bản
+            </span>
             {canEditAndResubmit ? (
-              <textarea 
+              <textarea
                 rows={8}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                placeholder="Bổ sung, chỉnh sửa lại toàn bộ nội dung..."
-                className="w-full text-xs p-3.5 border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 bg-red-50/20 font-sans leading-relaxed"
+                placeholder="Hiệu chỉnh nội dung chi tiết..."
+                className="w-full text-xs p-3.5 border border-stone-300 bg-white focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700 leading-relaxed font-sans"
               />
             ) : (
-              <div className="bg-slate-50/60 p-4 rounded-lg border border-slate-200/70 text-gray-800 text-xs leading-relaxed space-y-3 whitespace-pre-line font-sans">
+              <div className="p-4 border border-stone-200 bg-stone-50/40 text-stone-800 text-xs leading-relaxed whitespace-pre-line font-sans">
                 {submission?.content}
               </div>
             )}
-          </div>
+          </section>
 
- 
-          <div className="pt-3 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-bold text-gray-700 flex items-center gap-1.5">
-                <Paperclip className="w-3.5 h-3.5 text-red-600" />
-                <span>Tài liệu đính kèm ({attachments.length})</span>
-              </label>
+          <section aria-label="Tài liệu đính kèm" className="p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-stone-700">
+                Tài liệu đính kèm ({attachments.length})
+              </span>
               {canEditAndResubmit && (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-[11px] font-semibold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1"
+                  className="text-xs font-medium text-red-700 hover:text-red-800 underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-700"
                 >
-                  + Thêm tài liệu mới
+                  Thêm tài liệu mới
                 </button>
               )}
             </div>
 
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileChange} 
-              multiple 
-              className="hidden" 
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              multiple
+              className="hidden"
               accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
             />
 
             {attachments.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <ul className="divide-y divide-stone-200 border border-stone-200">
                 {attachments.map((file) => (
-                  <div 
-                    key={file.id} 
-                    className="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-lg hover:border-gray-300 transition"
+                  <li
+                    key={file.id}
+                    className="p-3 flex items-center justify-between text-xs bg-white"
                   >
-                    <div className="flex items-center gap-2 overflow-hidden mr-2">
-                      <FileText className="w-4 h-4 text-gray-500 shrink-0" />
-                      <div className="truncate">
-                        <p className="text-xs font-medium text-gray-800 truncate" title={file.file_name}>
-                          {file.file_name}
-                        </p>
-                        <span className="text-[10px] text-gray-400">
-                          {formatFileSize(file.file_size)}
-                        </span>
-                      </div>
+                    <div className="min-w-0 pr-3">
+                      <p className="font-medium text-stone-800 truncate" title={file.file_name}>
+                        {file.file_name}
+                      </p>
+                      <span className="text-[11px] text-stone-500">
+                        {formatFileSize(file.file_size)}
+                      </span>
                     </div>
                     <button
                       type="button"
                       disabled={downloadingId === file.id}
                       onClick={() => handleDownloadAttachment(file.id)}
-                      className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition shrink-0"
-                      title="Tải / Mở tệp tin"
+                      className="text-stone-700 hover:text-stone-900 underline text-xs disabled:opacity-50 shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-900"
                     >
-                      {downloadingId === file.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
-                      ) : (
-                        <Download className="w-3.5 h-3.5" />
-                      )}
+                      {downloadingId === file.id ? 'Đang tải...' : 'Tải về'}
                     </button>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             ) : (
-              <p className="text-xs text-gray-400 italic">Không có tài liệu đính kèm.</p>
+              <p className="text-xs text-stone-400 italic">Không có tài liệu đính kèm.</p>
             )}
 
-            {/* Danh sách tệp người dùng vừa chọn thêm (khi đang resubmit) */}
             {newAttachments.length > 0 && (
-              <div className="mt-3 space-y-1.5 bg-red-50/20 p-2.5 rounded-lg border border-red-200/50">
-                <span className="text-[11px] font-bold text-red-700">Tệp bổ sung sẽ tải lên khi nộp lại:</span>
-                {newAttachments.map((file, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-1.5 bg-white border border-gray-200 rounded text-xs">
-                    <div className="flex items-center gap-1.5 truncate max-w-[85%]">
-                      <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <span className="truncate text-gray-700">{file.name}</span>
-                      <span className="text-[10px] text-gray-400 shrink-0">({formatFileSize(file.size)})</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveNewFile(idx)}
-                      className="p-1 text-gray-400 hover:text-red-600"
+              <div className="p-3 bg-stone-50 border border-stone-200 space-y-2">
+                <span className="block text-[11px] font-semibold text-stone-700 uppercase tracking-wider">
+                  Tập tin tải thêm (chưa lưu)
+                </span>
+                <ul className="divide-y divide-stone-200 bg-white border border-stone-200">
+                  {newAttachments.map((file, idx) => (
+                    <li
+                      key={idx}
+                      className="p-2 flex items-center justify-between text-xs"
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="min-w-0 pr-2">
+                        <span className="text-stone-800 truncate block">{file.name}</span>
+                        <span className="text-[10px] text-stone-400">
+                          {formatFileSize(file.size)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveNewFile(idx)}
+                        className="text-stone-500 hover:text-red-700 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-900"
+                      >
+                        Hủy
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
-          </div>
+          </section>
 
           {canEditAndResubmit && (
-            <div className="pt-3 border-t border-gray-100 bg-amber-50/50 p-4 rounded-xl border border-amber-200">
-              <label className="block text-xs font-bold text-amber-900 mb-1 flex items-center gap-1.5">
-                <MessageSquare className="w-3.5 h-3.5 text-amber-700" />
-                <span>Nội dung giải trình / Phản hồi yêu cầu chỉnh sửa <span className="text-red-600">*</span>:</span>
+            <section aria-label="Nội dung giải trình" className="p-6 bg-stone-50/60 space-y-2">
+              <label htmlFor="resubmitCommentInput" className="block text-xs font-medium text-stone-800">
+                Nội dung giải trình / Bổ sung thông tin <span className="text-red-700">*</span>
               </label>
-              <textarea 
+              <textarea
+                id="resubmitCommentInput"
                 rows={3}
                 required
                 value={resubmitComment}
                 onChange={(e) => setResubmitComment(e.target.value)}
-                className="w-full text-xs p-2.5 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                placeholder="Nêu rõ các nội dung đã được chỉnh sửa theo yêu cầu..."
+                className="w-full text-xs p-3 border border-stone-300 bg-white focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700"
               />
-            </div>
+            </section>
           )}
 
           {isMyTurnToApprove && (
-            <div className="pt-4 border-t border-gray-100 space-y-2">
-              <label className="block text-xs font-bold text-gray-700 flex items-center gap-1.5">
-                <MessageSquare className="w-3.5 h-3.5 text-red-600" />
-                <span>Ý kiến xử lý / Lý do (Bắt buộc khi Trả về hoặc Từ chối):</span>
+            <section aria-label="Ý kiến xử lý" className="p-6 space-y-2">
+              <label htmlFor="approverCommentInput" className="block text-xs font-medium text-stone-800">
+                Ý kiến thẩm định / Lý do phê duyệt (bắt buộc khi Trả về hoặc Từ chối)
               </label>
-              <textarea 
+              <textarea
+                id="approverCommentInput"
                 rows={3}
                 value={approverComment}
                 onChange={(e) => setApproverComment(e.target.value)}
-                className="w-full text-xs p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-500"
+                placeholder="Ghi nhận chỉ đạo hoặc yêu cầu chỉnh sửa..."
+                className="w-full text-xs p-3 border border-stone-300 bg-white focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700"
               />
-            </div>
+            </section>
           )}
+        </article>
 
-          {comments.length > 0 && (
-            <div className="pt-4 border-t border-gray-100 space-y-3">
-              <h3 className="text-xs font-bold text-gray-700">Lịch sử ý kiến & Trao đổi:</h3>
-              <div className="space-y-2.5">
-                {comments.map((c) => (
-                  <div key={c.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 text-xs">
-                    <div className="flex items-center justify-between font-semibold text-gray-800 mb-1">
-                      <span>{c.author_name} ({c.author_job_title || 'Thành viên'})</span>
-                      <span className="text-[10px] text-gray-400 font-normal">
-                        {c.created_at ? new Date(c.created_at).toLocaleString('vi-VN') : ''}
-                      </span>
-                    </div>
-                    <div className="text-gray-600 whitespace-pre-wrap">{c.content}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="lg:col-span-4 bg-white p-5 rounded-xl border border-gray-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-800">Luồng quy trình</h3>
-            <span className="text-xs text-gray-400 font-medium">
+        {/* CỘT PHẢI: LUỒNG QUY TRÌNH (TINH GỌN, CHIẾM 4 PHẦN) */}
+        <aside className="lg:col-span-4 space-y-2.5">
+          <header className="pb-1.5 border-b border-stone-200 flex items-center justify-between">
+            <h2 className="text-xs font-semibold text-stone-900 tracking-tight">
+              Luồng quy trình
+            </h2>
+            <span className="text-[11px] text-stone-500 font-mono">
               Bước {submission?.current_step_order || 1}/{submission?.total_steps || 1}
             </span>
-          </div>
+          </header>
 
-          <div className="space-y-4 relative">
+          <ol className="space-y-2.5">
             {approval_steps.map((step, idx) => {
               const isPassed = step.status === 'PASSED';
               const isPending = step.status === 'PENDING';
-              const isRejected = step.status === 'REJECTED';
               const isStepReturned = step.status === 'RETURNED';
+              const isStepRejected = step.status === 'REJECTED';
+
+              const borderLeftColor = isPassed
+                ? 'border-l-emerald-600'
+                : isStepReturned || isStepRejected
+                ? 'border-l-red-600'
+                : isPending
+                ? 'border-l-amber-500'
+                : 'border-l-stone-300';
+
+              const headerBg = isPassed
+                ? 'bg-emerald-50 text-emerald-950 border-b border-emerald-100'
+                : isStepReturned || isStepRejected
+                ? 'bg-red-50 text-red-950 border-b border-red-100'
+                : isPending
+                ? 'bg-amber-50 text-amber-950 border-b border-amber-100'
+                : 'bg-stone-50/70 text-stone-600 border-b border-stone-100';
+
+              const stepComments = comments.filter((c) => {
+                if (c.step_id && step.id) {
+                  return String(c.step_id) === String(step.id);
+                }
+                return (
+                  c.author_id &&
+                  step.approver_id &&
+                  String(c.author_id).toLowerCase() === String(step.approver_id).toLowerCase()
+                );
+              });
 
               return (
-                <div 
-                  key={step.id || idx} 
-                  className={`p-3.5 rounded-xl border transition-all ${
-                    isPending ? 'border-amber-300 bg-amber-50/40 shadow-xs' 
-                      : isPassed ? 'border-emerald-200 bg-emerald-50/20' 
-                      : isStepReturned ? 'border-blue-300 bg-blue-50/30'
-                      : isRejected ? 'border-rose-200 bg-rose-50/20' 
-                      : 'border-gray-200 bg-gray-50/40'
-                  }`}
+                <li
+                  key={step.id || idx}
+                  className={`bg-white border border-stone-200 border-l-[3px] ${borderLeftColor} divide-y divide-stone-100 text-xs`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      {isPassed && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                      {isPending && <Clock className="w-4 h-4 text-amber-500 animate-pulse" />}
-                      {isStepReturned && <RotateCcw className="w-4 h-4 text-blue-600" />}
-                      {isRejected && <XCircle className="w-4 h-4 text-rose-600" />}
-                      <span className="text-xs font-bold text-gray-800">
-                        {step.step_role === 'APPROVER' ? 'Ký duyệt tờ trình' : 'Soát xét chuyên môn'}
+                  {/* Header bước: Tối ưu padding và font size */}
+                  <div className={`px-2.5 py-1.5 ${headerBg}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-[11px] truncate pr-1">
+                        {step.step_role === 'APPROVER' ? 'Ký duyệt tờ trình' : 'Trình & Soát xét'}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase font-semibold shrink-0">
+                        B.{step.step_order}
                       </span>
                     </div>
-                    <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded text-gray-500 bg-white border border-gray-200">
-                      Bước {step.step_order}
+                    <div className="text-[10px] font-mono mt-0.5 opacity-80 truncate">
+                      {step.action_date
+                        ? `Xong: ${new Date(step.action_date).toLocaleDateString('vi-VN')}`
+                        : isPending
+                        ? 'Chờ xử lý'
+                        : isStepReturned
+                        ? 'Đã trả về'
+                        : isStepRejected
+                        ? 'Đã từ chối'
+                        : 'Chưa thực hiện'}
+                    </div>
+                  </div>
+
+                  {/* Thông tin nhân sự: Avatar nhỏ hơn, khoảng cách gọn gàng */}
+                  <div className="p-2.5 flex items-start gap-2">
+                    <span className="w-6 h-6 bg-stone-100 text-stone-700 border border-stone-200 flex items-center justify-center font-semibold text-[10px] shrink-0">
+                      {step.approver_name ? step.approver_name.slice(0, 1).toUpperCase() : 'U'}
                     </span>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 mt-2">
-                    <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0">
-                      {step.approver_name ? step.approver_name.slice(0, 1) : 'U'}
-                    </div>
-                    <div className="text-left overflow-hidden">
-                      <div className="text-xs font-bold text-gray-800 truncate">{step.approver_name}</div>
-                      <div className="text-[11px] text-gray-400 truncate">
-                        {step.approver_job_title} - {step.approver_department}
-                      </div>
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <p className="font-semibold text-xs text-stone-900 truncate">
+                        {step.approver_name}
+                      </p>
+                      <p className="text-[10px] text-stone-500 truncate mt-0.5">
+                        {step.approver_department
+                          ? `${step.approver_department}${step.approver_job_title ? ` · ${step.approver_job_title}` : ''}`
+                          : step.approver_job_title || ''}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-[11px]">
-                    <span className="text-gray-400">Trạng thái:</span>
-                    {isPassed && <span className="font-semibold text-emerald-600">Đã hoàn thành</span>}
-                    {isPending && <span className="font-semibold text-amber-600">Đang chờ xử lý</span>}
-                    {step.status === 'WAITING' && <span className="text-gray-400">Chưa đến lượt</span>}
-                    {isStepReturned && <span className="font-semibold text-blue-600">Đã trả về</span>}
-                    {isRejected && <span className="font-semibold text-rose-600">Đã từ chối</span>}
-                  </div>
-                  {step.action_date && (
-                    <div className="text-[10px] text-gray-400 text-right mt-1">
-                      {new Date(step.action_date).toLocaleString('vi-VN')}
+                  {/* Ý kiến phản hồi lồng trong bước */}
+                  {stepComments.length > 0 && (
+                    <div className="p-2 bg-stone-50/60 space-y-1.5">
+                      {stepComments.map((c) => {
+                        const isCommentApproved = isPassed;
+                        const isCommentReturned = isStepReturned || isStepRejected;
+
+                        const badgeClass = isCommentApproved
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                          : isCommentReturned
+                          ? 'border-red-300 bg-red-50 text-red-800'
+                          : 'border-stone-300 bg-stone-100 text-stone-700';
+
+                        const commentCardBorder = isCommentApproved
+                          ? 'border-l-emerald-600'
+                          : isCommentReturned
+                          ? 'border-l-red-600'
+                          : 'border-l-stone-400';
+
+                        const badgeLabel = isCommentApproved
+                          ? 'Đồng ý'
+                          : isStepReturned
+                          ? 'Trả về'
+                          : isStepRejected
+                          ? 'Từ chối'
+                          : 'Ý kiến';
+
+                        return (
+                          <div
+                            key={c.id}
+                            className={`bg-white border border-stone-200 border-l-2 ${commentCardBorder} p-2 space-y-1 text-xs`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-medium text-[11px] text-stone-800 truncate">
+                                {c.author_name}
+                              </span>
+                              <span className={`text-[9px] font-medium px-1 py-0 border ${badgeClass} shrink-0`}>
+                                {badgeLabel}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-stone-700 whitespace-pre-wrap leading-relaxed font-sans">
+                              {c.content}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
-                </div>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ol>
+        </aside>
       </div>
 
+      {/* MODAL CHIA SẺ */}
       {isShareModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
-              <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                <Share2 className="w-4 h-4 text-purple-600" />
-                Chia sẻ tờ trình
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shareModalTitle"
+          className="fixed inset-0 z-50 bg-stone-900/40 flex items-center justify-center p-4"
+        >
+          <div className="bg-white w-full max-w-md border border-stone-300 divide-y divide-stone-200">
+            <header className="px-5 py-4 border-t-2 border-t-red-700 flex items-center justify-between">
+              <h3 id="shareModalTitle" className="font-semibold text-sm text-stone-900">
+                Chia sẻ quyền xem tờ trình
               </h3>
-              <button onClick={() => setIsShareModalOpen(false)} className="text-gray-400 hover:text-red-500">
-                <X className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={() => setIsShareModalOpen(false)}
+                className="text-stone-400 hover:text-stone-700 p-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-900"
+                aria-label="Đóng cửa sổ"
+              >
+                <X size={16} />
               </button>
-            </div>
-            
-            <form onSubmit={handleShareSubmit} className="p-6">
-              <div className="mb-4">
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Email người nhận <span className="text-red-500">*</span>
+            </header>
+
+            <form onSubmit={handleShareSubmit} className="p-5 space-y-4 text-xs">
+              <div className="space-y-1">
+                <label htmlFor="shareEmailInput" className="block font-medium text-stone-700">
+                  Email người nhận *
                 </label>
-                <input 
+                <input
+                  id="shareEmailInput"
                   type="email"
                   required
                   value={shareEmail}
                   onChange={(e) => setShareEmail(e.target.value)}
-                  placeholder="Ví dụ: audit.viewer@eoffice.vn"
-                  className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 text-sm"
+                  placeholder="name@eoffice.vn"
+                  className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-900 focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700 transition-colors duration-150"
                 />
               </div>
 
-              <div className="mb-6">
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                  Lời nhắn (Tùy chọn)
+              <div className="space-y-1">
+                <label htmlFor="shareMessageInput" className="block font-medium text-stone-700">
+                  Nội dung ghi chú kèm theo
                 </label>
-                <textarea 
+                <textarea
+                  id="shareMessageInput"
+                  rows={3}
                   value={shareMessage}
                   onChange={(e) => setShareMessage(e.target.value)}
-                  placeholder="Nhập lời nhắn sẽ hiển thị trong thông báo..."
-                  rows={3}
-                  className="w-full border border-gray-300 px-3 py-2 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 text-sm resize-none"
+                  placeholder="Ghi chú nội dung cần lưu ý khi chia sẻ..."
+                  className="w-full px-3 py-2 border border-stone-300 bg-white text-stone-900 focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-700 resize-none transition-colors duration-150"
                 />
               </div>
 
-              <div className="flex justify-end gap-2">
-                <button 
-                  type="button" 
+              <footer className="pt-3 border-t border-stone-200 flex justify-end gap-2">
+                <button
+                  type="button"
                   onClick={() => setIsShareModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 text-sm"
+                  className="px-4 py-2 border border-stone-300 text-stone-700 hover:bg-stone-50 font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-900"
                 >
                   Hủy
                 </button>
-                <button 
-                  type="submit" 
-                  className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 font-medium text-sm"
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2"
                 >
-                  Gửi chia sẻ
+                  Gửi thông tin
                 </button>
-              </div>
+              </footer>
             </form>
           </div>
         </div>

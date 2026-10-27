@@ -1,34 +1,34 @@
-// backend/middlewares/auth.middleware.js
-const { poolPromise } = require('../config/db');
-const UserModel = require('../models/user.model');
+// middlewares/auth.middleware.js
+const jwt = require('jsonwebtoken');
 
-const requireAdmin = async (req, res, next) => {
+const authenticate = (req, res, next) => {
   try {
-    const userId = req.headers['x-user-id'];
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') 
+      ? authHeader.split(' ')[1] 
+      : null;
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Yêu cầu đăng nhập (thiếu x-user-id).' });
+    if (!token) {
+      return res.status(401).json({ error: 'Vui lòng đăng nhập để truy cập hệ thống.' });
     }
 
-    const pool = await poolPromise;
-    const user = await UserModel.findById(userId, pool);
-
-    if (!user) {
-      return res.status(404).json({ error: 'Tài khoản không tồn tại trong hệ thống.' });
-    }
-
-    if (!user.is_admin) {
-      return res.status(403).json({ 
-        error: 'Truy cập bị từ chối! Bạn không có quyền quản trị viên (Admin).' 
-      });
-    }
-
-    req.adminUser = user;
-    next();
+    jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key', (err, decoded) => {
+      if (err) {
+        return res.status(403).json({ error: 'Phiên làm việc đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.' });
+      }
+      req.user = decoded;
+      next();
+    });
   } catch (error) {
-    console.error('[Admin Guard Error]:', error);
-    return res.status(500).json({ error: 'Lỗi xác thực quyền quản trị.' });
+    return res.status(500).json({ error: 'Lỗi xác thực người dùng.' });
   }
 };
 
-module.exports = { requireAdmin };
+const requireAdmin = (req, res, next) => {
+  if (!req.user || !req.user.is_admin) {
+    return res.status(403).json({ error: 'Bạn không có quyền thực hiện thao tác quản trị này.' });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireAdmin };

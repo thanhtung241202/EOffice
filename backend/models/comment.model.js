@@ -2,7 +2,6 @@
 const { sql } = require('../config/db');
 
 const CommentModel = {
-  // Tạo comment mới
   async create({ submission_id, user_id, content }, transactionOrPool) {
     const request = new sql.Request(transactionOrPool);
     await request
@@ -15,7 +14,6 @@ const CommentModel = {
       `);
   },
 
-  // Lấy danh sách comment theo submissionId
   async getBySubmissionId(submissionId, pool) {
     const request = pool.request();
     const result = await request

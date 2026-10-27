@@ -5,7 +5,6 @@ const AttachmentController = {
   async upload(req, res) {
     try {
       const { submissionId } = req.params;
-      // Lấy userId từ req.user (nếu có middleware) HOẶC lấy từ custom header 'x-user-id'
       const userId = req.user?.id || req.headers['x-user-id'] || req.body.userId;
       const files = req.files;
 
